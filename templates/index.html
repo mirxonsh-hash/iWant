@@ -398,7 +398,54 @@
             masterLoginModal.style.display = 'none';
             masterLoginForm.reset();
         }
-        
+        <script>
+    // Загрузка барберов пользователя
+    async function loadUserBarbers() {
+        try {
+            const response = await fetch('/get_user_barbers'); // Нужно добавить этот роут
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.barbers.length > 0) {
+                    renderBarbers(data.barbers);
+                } else {
+                    showEmptyState();
+                }
+            }
+        } catch (error) {
+            console.error('Error loading barbers:', error);
+        }
+    }
+            </script>
+    
+    // Функция для добавления барбера по коду
+    async function addBarberByCode(masterCode) {
+        try {
+            const formData = new FormData();
+            formData.append('master_code', masterCode);
+            
+            const response = await fetch('/add_barber', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                renderBarbers(result.barbers);
+                return true;
+            } else {
+                alert(result.message);
+                return false;
+            }
+        } catch (error) {
+            console.error('Error adding barber:', error);
+            alert('Ошибка подключения к серверу');
+            return false;
+        }
+    }
+    
+    // Добавь этот роут в server.py
+</script>
         // Добавление барбера по коду
         addBarberForm.addEventListener('submit', async function(e) {
             e.preventDefault();
