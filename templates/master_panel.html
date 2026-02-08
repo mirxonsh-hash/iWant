@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iWant - Панель мастера</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background-color: #0a0a0a;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid #333;
+            margin-bottom: 30px;
+        }
+        
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        .master-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .master-name {
+            color: #fff;
+            font-size: 16px;
+        }
+        
+        .master-code {
+            background: #333;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #4a6fa5;
+        }
+        
+        .logout-btn {
+            background: #333;
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        
+        .logout-btn:hover {
+            background: #444;
+        }
+        
+        .date-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 15px;
+            background: #1a1a1a;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+        
+        .date-navigation {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .date-btn {
+            background: #333;
+            color: #fff;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        
+        .date-btn:hover {
+            background: #444;
+        }
+        
+        .current-month {
+            font-size: 18px;
+            font-weight: 500;
+            color: #fff;
+            min-width: 200px;
+            text-align: center;
+        }
+        
+        .add-appointment-btn {
+            background: #4a6fa5;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        
+        .add-appointment-btn:hover {
+            background: #5a7fb5;
+        }
+        
+        /* Календарь */
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1px;
+            background: #333;
+            border: 1px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .calendar-header {
+            background: #222;
+            padding: 15px;
+            text-align: center;
+            font-weight: 500;
+            color: #888;
+            border-bottom: 1px solid #333;
+        }
+        
+        .calendar-day {
+            background: #1a1a1a;
+            min-height: 120px;
+            padding: 10px;
+            border-right: 1px solid #333;
+            border-bottom: 1px solid #333;
+            position: relative;
+        }
+        
+        .calendar-day:last-child {
+            border-right: none;
+        }
+        
+        .day-number {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .today .day-number {
+            color: #4a6fa5;
+            font-weight: bold;
+        }
+        
+        .appointments-list {
+            margin-top: 30px;
+        }
+        
+        .appointment-item {
+            background: #1a1a1a;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: border-color 0.2s;
+        }
+        
+        .appointment-item:hover {
+            border-color: #444;
+        }
+        
+        .appointment-info {
+            flex: 1;
+        }
+        
+        .appointment-client {
+            font-weight: 500;
+            font-size: 16px;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+        
+        .appointment-details {
+            display: flex;
+            gap: 15px;
+            color: #888;
+            font-size: 14px;
+        }
+        
+        .appointment-time {
+            color: #4a6fa5;
+            font-weight: 500;
+        }
+        
+        .appointment-status {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        
+        .status-pending {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+        
+        .status-confirmed {
+            background: rgba(40, 167, 69, 0.2);
+            color: #28a745;
+        }
+        
+        .status-completed {
+            background: rgba(23, 162, 184, 0.2);
+            color: #17a2b8;
+        }
+        
+        .status-cancelled {
+            background: rgba(220, 53, 69, 0.2);
+            color: #dc3545;
+        }
+        
+        .status-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .status-btn {
+            background: #333;
+            color: #fff;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+        
+        .status-btn:hover {
+            background: #444;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: #1a1a1a;
+            padding: 30px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            border: 1px solid #333;
+        }
+        
+        .modal-header {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .modal-title {
+            font-size: 20px;
+            color: #fff;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+            font-size: 14px;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 10px;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #666;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            background: #333;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #444;
+        }
+        
+        .btn-primary {
+            background: #4a6fa5;
+        }
+        
+        .btn-primary:hover {
+            background: #5a7fb5;
+        }
+        
+        .btn-block {
+            width: 100%;
+        }
+        
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #666;
+            font-size: 24px;
+            cursor: pointer;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .close-btn:hover {
+            color: #fff;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        
+        .instructions {
+            background: #1a1a1a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+            border: 1px solid #333;
+        }
+        
+        .instructions h3 {
+            color: #4a6fa5;
+            margin-bottom: 10px;
+        }
+        
+        .instructions ul {
+            padding-left: 20px;
+            color: #888;
+        }
+        
+        .instructions li {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">iWant</div>
+        <div class="master-info">
+            <div class="master-name" id="masterName">{{ master_name }}</div>
+            <div class="master-code" id="masterCode">{{ master_code }}</div>
+            <button class="logout-btn" onclick="logout()">Выйти</button>
+        </div>
+    </div>
+    
+    <div class="date-controls">
+        <div class="date-navigation">
+            <button class="date-btn" onclick="changeMonth(-1)">←</button>
+            <div class="current-month" id="currentMonth">
+                {{ start_date }} - {{ end_date }}
+            </div>
+            <button class="date-btn" onclick="changeMonth(1)">→</button>
+        </div>
+        <button class="add-appointment-btn" onclick="openAddAppointmentModal()">
+            + Добавить запись
+        </button>
+    </div>
+    
+    <!-- Список записей -->
+    <div class="appointments-list" id="appointmentsList">
+        {% if appointments %}
+            {% for appointment in appointments %}
+            <div class="appointment-item" data-id="{{ appointment.id }}">
+                <div class="appointment-info">
+                    <div class="appointment-client">{{ appointment.client_name }}</div>
+                    <div class="appointment-details">
+                        <span class="appointment-time">
+                            {{ appointment.appointment_date }} {{ appointment.appointment_time }}
+                        </span>
+                        <span>{{ appointment.service_type }}</span>
+                        <span>{{ appointment.client_phone }}</span>
+                        <span>{{ appointment.duration_minutes }} мин</span>
+                    </div>
+                    {% if appointment.notes %}
+                    <div style="color: #666; font-size: 13px; margin-top: 5px;">
+                        {{ appointment.notes }}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="status-actions">
+                    <span class="appointment-status status-{{ appointment.status }}">
+                        {{ appointment.status }}
+                    </span>
+                    <select class="status-select" onchange="updateStatus({{ appointment.id }}, this.value)" style="background: #333; color: #fff; border: none; padding: 4px; border-radius: 4px; margin-left: 10px;">
+                        <option value="pending" {% if appointment.status == 'pending' %}selected{% endif %}>Ожидание</option>
+                        <option value="confirmed" {% if appointment.status == 'confirmed' %}selected{% endif %}>Подтверждено</option>
+                        <option value="completed" {% if appointment.status == 'completed' %}selected{% endif %}>Завершено</option>
+                        <option value="cancelled" {% if appointment.status == 'cancelled' %}selected{% endif %}>Отменено</option>
+                    </select>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state">
+                <h3>Нет записей на выбранный период</h3>
+                <p>Добавьте первую запись, нажав кнопку "Добавить запись"</p>
+            </div>
+        {% endif %}
+    </div>
+    
+    <!-- Модальное окно добавления записи -->
+    <div id="addAppointmentModal" class="modal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closeAddAppointmentModal()">×</button>
+            <div class="modal-header">
+                <div class="modal-title">Новая запись</div>
+            </div>
+            <form id="addAppointmentForm">
+                <div class="form-group">
+                    <label class="form-label">Имя клиента</label>
+                    <input type="text" id="clientName" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Телефон</label>
+                    <input type="tel" id="clientPhone" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Дата</label>
+                    <input type="date" id="appointmentDate" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Время</label>
+                    <input type="time" id="appointmentTime" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Услуга</label>
+                    <select id="serviceType" class="form-input">
+                        <option value="Стрижка">Стрижка</option>
+                        <option value="Бритье">Бритье</option>
+                        <option value="Стрижка + Бритье">Стрижка + Бритье</option>
+                        <option value="Окрашивание">Окрашивание</option>
+                        <option value="Уход">Уход</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Длительность (минут)</label>
+                    <input type="number" id="duration" class="form-input" value="60" min="15" step="15">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Примечания</label>
+                    <textarea id="appointmentNotes" class="form-input" rows="3"></textarea>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-block">Сохранить запись</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Инструкции -->
+    <div class="instructions">
+        <h3>Инструкция:</h3>
+        <ul>
+            <li>Ваш код мастера: <strong>{{ master_code }}</strong></li>
+            <li>Дайте этот код клиентам, чтобы они могли записываться к вам через бота</li>
+            <li>Используйте фильтры по дате для просмотра записей</li>
+            <li>Меняйте статусы записей для отслеживания прогресса</li>
+        </ul>
+    </div>
+    
+    <script>
+        let currentStartDate = '{{ start_date }}';
+        let currentEndDate = '{{ end_date }}';
+        
+        // Открыть модальное окно добавления записи
+        function openAddAppointmentModal() {
+            const modal = document.getElementById('addAppointmentModal');
+            modal.style.display = 'flex';
+            
+            // Устанавливаем сегодняшнюю дату и ближайшее время по умолчанию
+            const today = new Date().toISOString().split('T')[0];
+            const now = new Date();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = (Math.ceil(now.getMinutes() / 15) * 15).toString().padStart(2, '0');
+            
+            document.getElementById('appointmentDate').value = today;
+            document.getElementById('appointmentTime').value = `${hours}:${minutes}`;
+        }
+        
+        // Закрыть модальное окно
+        function closeAddAppointmentModal() {
+            document.getElementById('addAppointmentModal').style.display = 'none';
+            document.getElementById('addAppointmentForm').reset();
+        }
+        
+        // Изменить месяц
+        function changeMonth(delta) {
+            const start = new Date(currentStartDate);
+            const end = new Date(currentEndDate);
+            
+            start.setMonth(start.getMonth() + delta);
+            end.setMonth(end.getMonth() + delta);
+            
+            currentStartDate = start.toISOString().split('T')[0];
+            currentEndDate = end.toISOString().split('T')[0];
+            
+            loadAppointments();
+        }
+        
+        // Загрузить записи
+        async function loadAppointments() {
+            try {
+                const response = await fetch(`/api/appointments?from=${currentStartDate}&to=${currentEndDate}`);
+                const data = await response.json();
+                
+                const list = document.getElementById('appointmentsList');
+                
+                if (data.appointments && data.appointments.length > 0) {
+                    list.innerHTML = data.appointments.map(app => `
+                        <div class="appointment-item" data-id="${app.id}">
+                            <div class="appointment-info">
+                                <div class="appointment-client">${app.client_name}</div>
+                                <div class="appointment-details">
+                                    <span class="appointment-time">
+                                        ${app.appointment_date} ${app.appointment_time}
+                                    </span>
+                                    <span>${app.service_type}</span>
+                                    <span>${app.client_phone}</span>
+                                    <span>${app.duration_minutes} мин</span>
+                                </div>
+                                ${app.notes ? `
+                                <div style="color: #666; font-size: 13px; margin-top: 5px;">
+                                    ${app.notes}
+                                </div>
+                                ` : ''}
+                            </div>
+                            <div class="status-actions">
+                                <span class="appointment-status status-${app.status}">
+                                    ${app.status}
+                                </span>
+                                <select class="status-select" onchange="updateStatus(${app.id}, this.value)" style="background: #333; color: #fff; border: none; padding: 4px; border-radius: 4px; margin-left: 10px;">
+                                    <option value="pending" ${app.status === 'pending' ? 'selected' : ''}>Ожидание</option>
+                                    <option value="confirmed" ${app.status === 'confirmed' ? 'selected' : ''}>Подтверждено</option>
+                                    <option value="completed" ${app.status === 'completed' ? 'selected' : ''}>Завершено</option>
+                                    <option value="cancelled" ${app.status === 'cancelled' ? 'selected' : ''}>Отменено</option>
+                                </select>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Нет записей на выбранный период</h3>
+                            <p>Добавьте первую запись, нажав кнопку "Добавить запись"</p>
+                        </div>
+                    `;
+                }
+                
+                // Обновляем отображение месяца
+                document.getElementById('currentMonth').textContent = 
+                    `${currentStartDate} - ${currentEndDate}`;
+                
+            } catch (error) {
+                console.error('Error loading appointments:', error);
+            }
+        }
+        
+        // Обновить статус записи
+        async function updateStatus(appointmentId, status) {
+            try {
+                const response = await fetch('/api/update_appointment_status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        appointment_id: appointmentId,
+                        status: status
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Обновляем отображение статуса
+                    const appointmentElement = document.querySelector(`[data-id="${appointmentId}"]`);
+                    if (appointmentElement) {
+                        const statusSpan = appointmentElement.querySelector('.appointment-status');
+                        statusSpan.textContent = status;
+                        statusSpan.className = `appointment-status status-${status}`;
+                    }
+                } else {
+                    alert('Ошибка при обновлении статуса');
+                }
+            } catch (error) {
+                console.error('Error updating status:', error);
+                alert('Ошибка при обновлении статуса');
+            }
+        }
+        
+        // Добавить новую запись
+        document.getElementById('addAppointmentForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                client_name: document.getElementById('clientName').value,
+                client_phone: document.getElementById('clientPhone').value,
+                appointment_date: document.getElementById('appointmentDate').value,
+                appointment_time: document.getElementById('appointmentTime').value,
+                service_type: document.getElementById('serviceType').value,
+                duration_minutes: parseInt(document.getElementById('duration').value) || 60,
+                notes: document.getElementById('appointmentNotes').value
+            };
+            
+            try {
+                const response = await fetch('/api/add_appointment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    closeAddAppointmentModal();
+                    loadAppointments();
+                    alert('Запись успешно добавлена!');
+                } else {
+                    alert('Ошибка при добавлении записи');
+                }
+            } catch (error) {
+                console.error('Error adding appointment:', error);
+                alert('Ошибка при добавлении записи');
+            }
+        });
+        
+        // Выход
+        function logout() {
+            window.location.href = '/logout';
+        }
+        
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', function() {
+            // Устанавливаем минимальную дату как сегодня
+            const today = new Date().toISOString().split('T')[0
