@@ -359,6 +359,13 @@
             font-size: 12px;
             padding: 5px;
         }
+        
+        .no-slots {
+            text-align: center;
+            color: #666;
+            padding: 30px 20px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -403,6 +410,10 @@
                     <div class="step-title">Выберите время</div>
                     <div class="time-picker" id="timePicker">
                         <!-- Временные слоты будут сгенерированы JavaScript -->
+                    </div>
+                    <div class="no-slots" id="noSlotsMessage" style="display: none;">
+                        На выбранную дату нет доступных слотов<br>
+                        Выберите другую дату
                     </div>
                 </div>
                 
@@ -484,7 +495,7 @@
     </div>
 
     <script>
-        // booking_script.js
+        // booking_script.js - полная версия
         let currentStep = 1;
         let bookingData = {
             master_code: '',
@@ -502,7 +513,7 @@
         let currentMonth = new Date().getMonth();
         let currentYear = new Date().getFullYear();
 
-        function openBookingModal(masterCode, masterName, masterAvatar) {
+        window.openBookingModal = function(masterCode, masterName, masterAvatar) {
             bookingData.master_code = masterCode;
             bookingData.master_name = masterName;
             bookingData.master_avatar = masterAvatar || '/static/default_barber.png';
@@ -517,7 +528,7 @@
             updateNavigation();
         }
 
-        function closeBookingModal() {
+        window.closeBookingModal = function() {
             document.getElementById('bookingModal').style.display = 'none';
             resetBookingForm();
         }
@@ -720,6 +731,9 @@
                 }
                 
                 const timePicker = document.getElementById('timePicker');
+                const noSlotsMessage = document.getElementById('noSlotsMessage');
+                
+                // Рабочие часы: 10:00 - 21:00 с интервалом в 30 минут
                 const allSlots = [
                     '10:00', '10:30', '11:00', '11:30', '12:00', '12:30',
                     '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
@@ -728,6 +742,7 @@
                 ];
                 
                 let html = '';
+                let availableSlots = 0;
                 
                 allSlots.forEach(time => {
                     const isBooked = data.booked_slots && data.booked_slots.includes(time);
@@ -743,9 +758,19 @@
                             ${time}
                         </div>
                     `;
+                    
+                    if (!isBooked) availableSlots++;
                 });
                 
                 timePicker.innerHTML = html;
+                
+                if (availableSlots === 0) {
+                    timePicker.style.display = 'none';
+                    noSlotsMessage.style.display = 'block';
+                } else {
+                    timePicker.style.display = 'grid';
+                    noSlotsMessage.style.display = 'none';
+                }
             } catch (error) {
                 console.error('Error loading time slots:', error);
             }
@@ -830,7 +855,11 @@
                     updateNavigation();
                     
                     // Обновить список барберов пользователя
-                    loadUserBarbers();
+                    if (window.loadUserBarbers) {
+                        setTimeout(() => {
+                            window.loadUserBarbers();
+                        }, 1000);
+                    }
                 } else {
                     alert('Ошибка при создании записи: ' + (result.error || 'Неизвестная ошибка'));
                 }
