@@ -11,7 +11,7 @@ import requests
 import logging
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-me-in-production')
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
@@ -26,11 +26,13 @@ DB_CONFIG = {
 
 # Telegram Bot
 TELEGRAM_TOKEN = '7662525969:AAF33YcsBM8OmeURyarjx-bNxF9ghOVGRNc'
-TELEGRAM_API = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}'
 OWNER_ID = 531822805  # ID владельца
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 def get_db_connection():
@@ -46,6 +48,7 @@ def init_database():
     """Инициализация таблиц в базе данных"""
     conn = get_db_connection()
     if not conn:
+        logger.error("Cannot initialize database - no connection")
         return
     
     try:
@@ -97,11 +100,11 @@ def init_database():
             )
         ''')
         
-        # Таблица админов (мастеров для входа на сайт)
+        # Таблица авторизации мастеров
         cur.execute('''
             CREATE TABLE IF NOT EXISTS masters_auth (
                 id SERIAL PRIMARY KEY,
-                master_code VARCHAR(20) UNIQUE REFERENCES masters(code),
+                master_code VARCHAR(20) UNIQUE,
                 password_hash VARCHAR(255),
                 last_login TIMESTAMP
             )
@@ -213,6 +216,9 @@ def master_login():
     master_code = request.form.get('login_code', '').strip().upper()
     password = request.form.get('password', '').strip()
     
+    if not master_code or not password:
+        return jsonify({'success': False, 'message': 'Введите код и пароль'})
+    
     conn = get_db_connection()
     if not conn:
         return jsonify({'success': False, 'message': 'Ошибка базы данных'})
@@ -220,39 +226,52 @@ def master_login():
     try:
         cur = conn.cursor()
         
-        # Проверяем авторизацию мастера
+        # Получаем хеш пароля из базы
         cur.execute('''
-            SELECT ma.master_code, m.full_name, m.id 
-            FROM masters_auth ma
-            JOIN masters m ON ma.master_code = m.code
-            WHERE ma.master_code = %s AND ma.password_hash = %s AND m.is_active = TRUE
-        ''', (master_code, generate_password_hash(password)))
+            SELECT password_hash FROM masters_auth 
+            WHERE master_code = %s
+        ''', (master_code,))
         
+        auth_data = cur.fetchone()
+        
+        if not auth_data:
+            return jsonify({'success': False, 'message': 'Неверный код или пароль'})
+        
+        password_hash = auth_data[0]
+        
+        # Проверяем пароль
+        if not check_password_hash(password_hash, password):
+            return jsonify({'success': False, 'message': 'Неверный код или пароль'})
+        
+        # Получаем информацию о мастере
+        cur.execute('SELECT id, full_name FROM masters WHERE code = %s AND is_active = TRUE', (master_code,))
         master = cur.fetchone()
         
-        if master:
-            code, full_name, master_id = master
-            
-            session['master_id'] = master_id
-            session['master_code'] = code
-            session['master_name'] = full_name
-            session['is_master'] = True
-            
-            # Обновляем время последнего входа
-            cur.execute('''
-                UPDATE masters_auth 
-                SET last_login = CURRENT_TIMESTAMP 
-                WHERE master_code = %s
-            ''', (code,))
-            conn.commit()
-            
-            return jsonify({
-                'success': True, 
-                'message': 'Успешный вход',
-                'redirect': '/master_panel'
-            })
-        else:
-            return jsonify({'success': False, 'message': 'Неверный код или пароль'})
+        if not master:
+            return jsonify({'success': False, 'message': 'Мастер не найден или неактивен'})
+        
+        master_id, full_name = master
+        
+        # Устанавливаем сессию
+        session['master_id'] = master_id
+        session['master_code'] = master_code
+        session['master_name'] = full_name
+        session['is_master'] = True
+        
+        # Обновляем время последнего входа
+        cur.execute('''
+            UPDATE masters_auth 
+            SET last_login = CURRENT_TIMESTAMP 
+            WHERE master_code = %s
+        ''', (master_code,))
+        
+        conn.commit()
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Успешный вход',
+            'redirect': '/master_panel'
+        })
             
     except Exception as e:
         logger.error(f"Login error: {e}")
@@ -521,152 +540,14 @@ def logout():
 @app.route('/api/telegram/add_master', methods=['POST'])
 def api_add_master():
     """API для добавления мастера через бота (только для владельца)"""
-    data = request.json
-    owner_telegram_id = data.get('owner_id')
-    
-    if int(owner_telegram_id) != OWNER_ID:
-        return jsonify({'success': False, 'message': 'Доступ запрещен'}), 403
-    
-    master_code = data.get('code', '').strip().upper()
-    full_name = data.get('full_name', '').strip()
-    phone = data.get('phone', '').strip()
-    password = data.get('password', '').strip()
-    
-    if not all([master_code, full_name, phone, password]):
-        return jsonify({'success': False, 'message': 'Все поля обязательны'}), 400
-    
-    conn = get_db_connection()
-    if not conn:
-        return jsonify({'success': False, 'message': 'Ошибка базы данных'}), 500
-    
     try:
-        cur = conn.cursor()
+        data = request.json
+        logger.info(f"Received add_master request: {data}")
         
-        # Проверяем, не существует ли уже мастер с таким кодом
-        cur.execute('SELECT id FROM masters WHERE code = %s', (master_code,))
-        if cur.fetchone():
-            return jsonify({'success': False, 'message': 'Мастер с таким кодом уже существует'}), 400
+        # Получаем owner_id из данных
+        owner_id = data.get('owner_id')
+        if not owner_id:
+            return jsonify({'success': False, 'message': 'Не указан ID владельца'}), 400
         
-        # Добавляем мастера
-        cur.execute('''
-            INSERT INTO masters (code, full_name, phone, created_by)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id
-        ''', (master_code, full_name, phone, owner_telegram_id))
-        
-        master_id = cur.fetchone()[0]
-        
-        # Добавляем данные для авторизации
-        cur.execute('''
-            INSERT INTO masters_auth (master_code, password_hash)
-            VALUES (%s, %s)
-        ''', (master_code, generate_password_hash(password)))
-        
-        conn.commit()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Мастер {full_name} успешно создан!',
-            'data': {
-                'code': master_code,
-                'full_name': full_name,
-                'phone': phone,
-                'password': password
-            }
-        })
-        
-    except Exception as e:
-        logger.error(f"Error adding master via API: {e}")
-        conn.rollback()
-        return jsonify({'success': False, 'message': 'Ошибка при создании мастера'}), 500
-    finally:
-        cur.close()
-        conn.close()
-
-@app.route('/api/telegram/get_stats', methods=['POST'])
-def api_get_stats():
-    """API для получения статистики через бота (только для владельца)"""
-    data = request.json
-    owner_telegram_id = data.get('owner_id')
-    
-    if int(owner_telegram_id) != OWNER_ID:
-        return jsonify({'success': False, 'message': 'Доступ запрещен'}), 403
-    
-    master_code = data.get('master_code', '').strip().upper()
-    
-    conn = get_db_connection()
-    if not conn:
-        return jsonify({'success': False, 'message': 'Ошибка базы данных'}), 500
-    
-    try:
-        cur = conn.cursor()
-        
-        if master_code:
-            # Статистика по конкретному мастеру
-            cur.execute('''
-                SELECT 
-                    m.full_name,
-                    m.phone,
-                    COUNT(DISTINCT c.user_id) as total_clients,
-                    COUNT(DISTINCT a.id) as total_appointments,
-                    SUM(CASE WHEN a.status = 'completed' THEN a.price ELSE 0 END) as total_earnings,
-                    COUNT(DISTINCT a.client_phone) as unique_clients
-                FROM masters m
-                LEFT JOIN clients c ON m.code = c.master_code
-                LEFT JOIN appointments a ON m.code = a.master_code
-                WHERE m.code = %s
-                GROUP BY m.id, m.full_name, m.phone
-            ''', (master_code,))
-        else:
-            # Общая статистика
-            cur.execute('''
-                SELECT 
-                    COUNT(DISTINCT m.id) as total_masters,
-                    COUNT(DISTINCT c.user_id) as total_clients,
-                    COUNT(DISTINCT a.id) as total_appointments,
-                    SUM(CASE WHEN a.status = 'completed' THEN a.price ELSE 0 END) as total_earnings
-                FROM masters m
-                LEFT JOIN clients c ON m.code = c.master_code
-                LEFT JOIN appointments a ON m.code = a.master_code
-                WHERE m.is_active = TRUE
-            ''')
-        
-        stats = cur.fetchone()
-        
-        if master_code and stats:
-            return jsonify({
-                'success': True,
-                'stats': {
-                    'master_name': stats[0],
-                    'phone': stats[1],
-                    'total_clients': stats[2] or 0,
-                    'total_appointments': stats[3] or 0,
-                    'total_earnings': float(stats[4] or 0),
-                    'unique_clients': stats[5] or 0
-                }
-            })
-        elif not master_code and stats:
-            return jsonify({
-                'success': True,
-                'stats': {
-                    'total_masters': stats[0] or 0,
-                    'total_clients': stats[1] or 0,
-                    'total_appointments': stats[2] or 0,
-                    'total_earnings': float(stats[3] or 0)
-                }
-            })
-        else:
-            return jsonify({'success': False, 'message': 'Мастер не найден'}), 404
-            
-    except Exception as e:
-        logger.error(f"Error fetching stats via API: {e}")
-        return jsonify({'success': False, 'message': 'Ошибка при получении статистики'}), 500
-    finally:
-        cur.close()
-        conn.close()
-
-# ==================== ЗАПУСК СЕРВЕРА ====================
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+        # Проверяем ID владельца
+        if int(owner
