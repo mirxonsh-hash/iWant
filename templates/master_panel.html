@@ -704,4 +704,9 @@
         // Инициализация
         document.addEventListener('DOMContentLoaded', function() {
             // Устанавливаем минимальную дату как сегодня
-            const today = new Date().toISOString().split('T')[0
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('appointmentDate').min = today;
+        });
+    </script>
+</body>
+</html>
