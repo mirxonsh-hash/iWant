@@ -228,24 +228,46 @@
             color: #fff;
         }
         
-        .file-input {
-            display: none;
+        .barber-code {
+            font-size: 12px;
+            color: #4a6fa5;
+            font-family: monospace;
+            margin-top: 5px;
         }
         
-        .file-label {
-            display: block;
-            padding: 10px;
-            background: #222;
-            border: 1px dashed #444;
-            border-radius: 6px;
+        .empty-state {
+            grid-column: 1 / -1;
             text-align: center;
-            cursor: pointer;
-            margin-bottom: 15px;
-            color: #888;
+            color: #666;
+            padding: 40px;
         }
         
-        .file-label:hover {
-            background: #252525;
+        .how-it-works {
+            margin-top: 30px;
+            padding: 20px;
+            background: #1a1a1a;
+            border-radius: 8px;
+            border: 1px solid #333;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
+        .how-it-works h3 {
+            color: #4a6fa5;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .how-it-works ol {
+            color: #888;
+            padding-left: 20px;
+            text-align: left;
+        }
+        
+        .how-it-works li {
+            margin-bottom: 10px;
+            line-height: 1.5;
         }
     </style>
 </head>
@@ -263,6 +285,20 @@
         
         <div id="barbersGrid" class="barbers-grid">
             <!-- Барберы будут добавляться сюда -->
+            <div class="empty-state" id="emptyState">
+                У вас пока нет добавленных барберов<br>
+                Нажмите "+" чтобы добавить первого
+            </div>
+        </div>
+        
+        <div class="how-it-works">
+            <h3>Как это работает?</h3>
+            <ol>
+                <li>Попросите у вашего барбера его уникальный код</li>
+                <li>Нажмите "+" и введите код</li>
+                <li>Барбер появится в вашем списке</li>
+                <li>Следите за доступным временем и записывайтесь</li>
+            </ol>
         </div>
         
         <button class="master-button" onclick="openMasterLoginModal()">я мастер</button>
@@ -273,24 +309,35 @@
         <div class="modal-content">
             <button class="close-btn" onclick="closeAddBarberModal()">×</button>
             <div class="modal-header">
-                <div class="modal-title">Добавить барбера</div>
+                <div class="modal-title">Добавить своего барбера</div>
             </div>
             <form id="addBarberForm">
                 <div class="form-group">
-                    <label for="barberName" style="display: block; margin-bottom: 8px; color: #aaa;">Имя барбера</label>
-                    <input type="text" id="barberName" class="form-input" placeholder="Введите имя" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="barberAvatar" class="file-label">
-                        📁 Загрузить аватарку
+                    <label for="masterCode" style="display: block; margin-bottom: 8px; color: #aaa;">
+                        🔑 Код барбера
                     </label>
-                    <input type="file" id="barberAvatar" class="file-input" accept="image/*">
-                    <div id="fileName" style="color: #666; font-size: 14px; margin-top: 5px;"></div>
+                    <input type="text" id="masterCode" class="form-input" 
+                           placeholder="Введите код, который вам дал барбер" 
+                           required
+                           pattern="[A-Z0-9]{3,10}"
+                           title="Только латинские буквы и цифры, 3-10 символов">
+                    <div style="color: #666; font-size: 12px; margin-top: 5px;">
+                        Попросите код у своего барбера
+                    </div>
                 </div>
                 
-                <button type="submit" class="btn btn-primary">Сохранить барбера</button>
+                <button type="submit" class="btn btn-primary">Добавить барбера</button>
             </form>
+            
+            <div style="margin-top: 20px; padding: 15px; background: #222; border-radius: 6px;">
+                <div style="color: #4a6fa5; font-weight: 500; margin-bottom: 10px;">ℹ️ Как это работает:</div>
+                <div style="color: #888; font-size: 14px;">
+                    1. Попросите у вашего барбера его уникальный код<br>
+                    2. Введите код в поле выше<br>
+                    3. Ваш барбер появится в вашем списке<br>
+                    4. Вы сможете следить за его расписанием
+                </div>
+            </div>
         </div>
     </div>
     
@@ -303,7 +350,7 @@
             </div>
             <form id="masterLoginForm">
                 <div class="form-group">
-                    <input type="text" id="username" class="form-input" placeholder="Логин" required>
+                    <input type="text" id="loginCode" class="form-input" placeholder="Код мастера" required>
                 </div>
                 
                 <div class="form-group">
@@ -312,6 +359,12 @@
                 
                 <button type="submit" class="btn btn-primary">Войти</button>
             </form>
+            
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333; text-align: center;">
+                <div style="color: #666; font-size: 12px;">
+                    Получите код и пароль у владельца салона
+                </div>
+            </div>
         </div>
     </div>
     
@@ -322,8 +375,7 @@
         const addBarberForm = document.getElementById('addBarberForm');
         const masterLoginForm = document.getElementById('masterLoginForm');
         const barbersGrid = document.getElementById('barbersGrid');
-        const barberAvatarInput = document.getElementById('barberAvatar');
-        const fileName = document.getElementById('fileName');
+        const emptyState = document.getElementById('emptyState');
         
         // Открыть модальное окно добавления барбера
         function openAddBarberModal() {
@@ -334,7 +386,6 @@
         function closeAddBarberModal() {
             addBarberModal.style.display = 'none';
             addBarberForm.reset();
-            fileName.textContent = '';
         }
         
         // Открыть модальное окно входа мастера
@@ -348,27 +399,21 @@
             masterLoginForm.reset();
         }
         
-        // Обработчик выбора файла
-        barberAvatarInput.addEventListener('change', function(e) {
-            if (e.target.files.length > 0) {
-                fileName.textContent = `Выбран файл: ${e.target.files[0].name}`;
-            } else {
-                fileName.textContent = '';
-            }
-        });
-        
-        // Добавление барбера
+        // Добавление барбера по коду
         addBarberForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const formData = new FormData();
-            formData.append('name', document.getElementById('barberName').value);
+            const masterCode = document.getElementById('masterCode').value.trim().toUpperCase();
             
-            if (barberAvatarInput.files[0]) {
-                formData.append('avatar', barberAvatarInput.files[0]);
+            if (!masterCode) {
+                alert('Введите код барбера');
+                return;
             }
             
             try {
+                const formData = new FormData();
+                formData.append('master_code', masterCode);
+                
                 const response = await fetch('/add_barber', {
                     method: 'POST',
                     body: formData
@@ -378,14 +423,21 @@
                 
                 if (result.success) {
                     closeAddBarberModal();
-                    loadBarbers();
-                    alert('Барбер успешно добавлен!');
+                    
+                    // Обновляем список барберов
+                    if (result.barbers && result.barbers.length > 0) {
+                        renderBarbers(result.barbers);
+                    } else {
+                        loadUserBarbers();
+                    }
+                    
+                    alert(result.message);
                 } else {
-                    alert('Ошибка при добавлении барбера');
+                    alert(result.message || 'Ошибка при добавлении барбера');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                alert('Произошла ошибка');
+                alert('Произошла ошибка при подключении к серверу');
             }
         });
         
@@ -393,11 +445,14 @@
         masterLoginForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const formData = new FormData();
-            formData.append('username', document.getElementById('username').value);
-            formData.append('password', document.getElementById('password').value);
+            const loginCode = document.getElementById('loginCode').value.trim().toUpperCase();
+            const password = document.getElementById('password').value;
             
             try {
+                const formData = new FormData();
+                formData.append('login_code', loginCode);
+                formData.append('password', password);
+                
                 const response = await fetch('/master_login', {
                     method: 'POST',
                     body: formData
@@ -406,49 +461,53 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    closeMasterLoginModal();
-                    alert('Успешный вход! Теперь вы мастер.');
+                    // Перенаправляем на панель мастера
+                    if (result.redirect) {
+                        window.location.href = result.redirect;
+                    }
                 } else {
-                    alert('Неверные данные для входа');
+                    alert(result.message || 'Ошибка при входе');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                alert('Произошла ошибка');
+                alert('Произошла ошибка при подключении к серверу');
             }
         });
         
-        // Загрузка списка барберов
-        async function loadBarbers() {
-            try {
-                const response = await fetch('/get_barbers');
-                const result = await response.json();
-                
-                if (result.barbers && result.barbers.length > 0) {
-                    barbersGrid.innerHTML = result.barbers.map(barber => `
-                        <div class="barber-card">
-                            <img src="${barber.avatar}" alt="${barber.name}" class="barber-avatar">
-                            <div class="barber-name">${barber.name}</div>
-                        </div>
-                    `).join('');
-                } else {
-                    barbersGrid.innerHTML = '<div style="grid-column: 1 / -1; color: #666; text-align: center; padding: 40px;">Пока нет добавленных барберов</div>';
-                }
-            } catch (error) {
-                console.error('Error loading barbers:', error);
+        // Рендеринг списка барберов
+        function renderBarbers(barbers) {
+            if (!barbers || barbers.length === 0) {
+                barbersGrid.innerHTML = `
+                    <div class="empty-state">
+                        У вас пока нет добавленных барберов<br>
+                        Нажмите "+" чтобы добавить первого
+                    </div>
+                `;
+                return;
             }
+            
+            barbersGrid.innerHTML = barbers.map(barber => `
+                <div class="barber-card">
+                    <img src="${barber.avatar || '/static/default_barber.png'}" 
+                         alt="${barber.name}" 
+                         class="barber-avatar"
+                         onerror="this.src='/static/default_barber.png'">
+                    <div class="barber-name">${barber.name}</div>
+                    <div class="barber-code">Код: ${barber.code}</div>
+                </div>
+            `).join('');
         }
         
-        // Проверка статуса мастера при загрузке
-        async function checkMasterStatus() {
+        // Загрузка барберов пользователя
+        async function loadUserBarbers() {
             try {
-                const response = await fetch('/check_master');
-                const result = await response.json();
-                
-                if (result.is_master) {
-                    // Можно добавить специальный функционал для мастера
-                }
+                // При загрузке страницы получаем барберов пользователя
+                // (в реальном приложении здесь бы был запрос к API)
+                const response = await fetch('/');
+                // Для демо просто скрываем состояние "пусто"
+                emptyState.style.display = 'none';
             } catch (error) {
-                console.error('Error checking master status:', error);
+                console.error('Error loading barbers:', error);
             }
         }
         
@@ -464,8 +523,7 @@
         
         // Инициализация при загрузке страницы
         window.addEventListener('DOMContentLoaded', () => {
-            loadBarbers();
-            checkMasterStatus();
+            loadUserBarbers();
         });
     </script>
 </body>
