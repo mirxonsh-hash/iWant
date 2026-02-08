@@ -398,8 +398,8 @@
         const barbersGrid = document.getElementById('barbersGrid');
         const emptyState = document.getElementById('emptyState');
         
-        // Загружаем модальное окно записи
-        fetch('/static/booking_modal.html')
+       // Загружаем модальное окно записи
+        fetch('/booking_modal')
             .then(response => response.text())
             .then(html => {
                 const container = document.getElementById('bookingModalContainer');
@@ -407,7 +407,14 @@
                     container.innerHTML = html;
                 }
             })
-            .catch(error => console.error('Error loading booking modal:', error));
+            .catch(error => {
+                console.error('Error loading booking modal:', error);
+                // Если не загрузилось, покажем сообщение
+                const container = document.getElementById('bookingModalContainer');
+                if (container) {
+                    container.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">Окно записи временно недоступно</div>';
+                }
+            });
         
         // Открыть модальное окно добавления барбера
         function openAddBarberModal() {
