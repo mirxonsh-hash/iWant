@@ -124,6 +124,24 @@ def init_db():
         conn.commit()
     logger.info("Database initialized successfully")
 
+def create_test_master():
+    """Создать тестового барбера для демонстрации"""
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                # Проверяем, не существует ли уже тестовый барбер
+                cur.execute("SELECT id FROM masters WHERE code = 'TEST'")
+                if not cur.fetchone():
+                    cur.execute('''
+                        INSERT INTO masters (code, full_name, phone, password_hash, price)
+                        VALUES (%s, %s, %s, %s, %s)
+                    ''', ('TEST', 'Тестовый Барбер', '+79990001122', 
+                          generate_password_hash('123456'), 1500))
+                    conn.commit()
+                    logger.info("Test master created: TEST / 123456")
+    except Exception as e:
+        logger.error(f"Error creating test master: {e}")
+
 # ==================== ГЛАВНЫЕ СТРАНИЦЫ ====================
 
 @app.route('/')
@@ -221,9 +239,26 @@ def get_user_barbers():
         
         with get_db() as conn:
             with conn.cursor() as cur:
-                # Временное решение - всегда возвращаем пустой список
-                # Потом добавим миграцию для добавления столбца master_code
-                return jsonify({'success': True, 'barbers': []})
+                cur.execute('''
+                    SELECT m.code, m.full_name as name, 
+                           COALESCE(m.avatar_url, '/static/default_barber.png') as avatar,
+                           m.price
+                    FROM clients c
+                    JOIN masters m ON c.master_code = m.code
+                    WHERE c.user_id = %s AND m.is_active = TRUE
+                    ORDER BY c.added_at DESC
+                ''', (user_id,))
+                
+                barbers = []
+                for row in cur.fetchall():
+                    barbers.append({
+                        'code': row[0],
+                        'name': row[1],
+                        'avatar': row[2],
+                        'price': float(row[3]) if row[3] else 1000
+                    })
+                
+                return jsonify({'success': True, 'barbers': barbers})
         
     except Exception as e:
         logger.error(f"Error getting user barbers: {e}")
@@ -231,40 +266,76 @@ def get_user_barbers():
 
 @app.route('/add_barber', methods=['POST'])
 @require_user
-def add_barber_web():
-    """Добавить барбера (веб)"""
+def add_barber():
+    """Добавить барбера пользователю"""
     user_id = session['user_id']
     master_code = request.form.get('master_code', '').strip().upper()
     
     if not master_code:
         return jsonify({'success': False, 'message': 'Введите код барбера'})
     
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            # Проверяем барбера
-            cur.execute('''
-                SELECT full_name, avatar_url FROM masters 
-                WHERE code = %s AND is_active = TRUE
-            ''', (master_code,))
-            
-            master = cur.fetchone()
-            
-            if not master:
-                return jsonify({'success': False, 'message': 'Барбер не найден'})
-            
-            # Добавляем в clients
-            cur.execute('''
-                INSERT INTO clients (user_id, master_code, master_name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (user_id, master_code) DO NOTHING
-            ''', (user_id, master_code, master[0]))
-            
-            conn.commit()
-    
-    return jsonify({
-        'success': True,
-        'message': 'Барбер успешно добавлен'
-    })
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                # Проверяем, существует ли барбер
+                cur.execute('''
+                    SELECT code, full_name, avatar_url, price 
+                    FROM masters 
+                    WHERE code = %s AND is_active = TRUE
+                ''', (master_code,))
+                
+                master = cur.fetchone()
+                
+                if not master:
+                    return jsonify({'success': False, 'message': 'Барбер не найден'})
+                
+                # Проверяем, не добавлен ли уже этот барбер
+                cur.execute('''
+                    SELECT 1 FROM clients 
+                    WHERE user_id = %s AND master_code = %s
+                ''', (user_id, master_code))
+                
+                if cur.fetchone():
+                    return jsonify({'success': False, 'message': 'Этот барбер уже добавлен'})
+                
+                # Добавляем барбера пользователю
+                cur.execute('''
+                    INSERT INTO clients (user_id, master_code, master_name)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                ''', (user_id, master_code, master[1]))
+                
+                # Получаем всех барберов пользователя для возврата
+                cur.execute('''
+                    SELECT m.code, m.full_name as name, 
+                           COALESCE(m.avatar_url, '/static/default_barber.png') as avatar,
+                           m.price
+                    FROM clients c
+                    JOIN masters m ON c.master_code = m.code
+                    WHERE c.user_id = %s AND m.is_active = TRUE
+                    ORDER BY c.added_at DESC
+                ''', (user_id,))
+                
+                user_barbers = []
+                for row in cur.fetchall():
+                    user_barbers.append({
+                        'code': row[0],
+                        'name': row[1],
+                        'avatar': row[2],
+                        'price': float(row[3]) if row[3] else 1000
+                    })
+                
+                conn.commit()
+                
+        return jsonify({
+            'success': True,
+            'message': 'Барбер успешно добавлен!',
+            'barbers': user_barbers
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding barber: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка сервера'})
 
 # ==================== API ДЛЯ БАРБЕРОВ ====================
 
@@ -669,6 +740,7 @@ def server_error(e):
 
 if __name__ == '__main__':
     init_db()
+    create_test_master()  # Создаем тестового барбера
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     app.run(host='0.0.0.0', port=port, debug=debug)
