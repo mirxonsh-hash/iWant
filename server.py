@@ -149,6 +149,16 @@ def index():
     
     return render_template('index.html', barbers=barbers)
 
+
+@app.route('/get_user_barbers')
+def get_user_barbers():
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({'success': False, 'barbers': []})
+    
+    user_barbers = data_manager.get_client_masters(user_id)
+    return jsonify({'success': True, 'barbers': user_barbers})
+
 @app.route('/add_barber', methods=['POST'])
 def add_barber():
     user_id = session.get('user_id')
@@ -551,3 +561,4 @@ def api_add_master():
         
         # Проверяем ID владельца
         if int(owner
+
