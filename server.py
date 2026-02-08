@@ -143,6 +143,10 @@ def create_test_master():
         logger.error(f"Error creating test master: {e}")
 
 # ==================== ГЛАВНЫЕ СТРАНИЦЫ ====================
+@app.route('/booking_modal')
+def booking_modal():
+    """Отдать модальное окно записи"""
+    return render_template('booking_modal.html')
 
 @app.route('/')
 @require_user
@@ -744,3 +748,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     app.run(host='0.0.0.0', port=port, debug=debug)
+
