@@ -385,7 +385,10 @@
             </div>
         </div>
     </div>
-    
+
+    <!-- Модальное окно записи -->
+    <div id="bookingModalContainer"></div>
+
     <script>
         // Элементы DOM
         const addBarberModal = document.getElementById('addBarberModal');
@@ -395,12 +398,16 @@
         const barbersGrid = document.getElementById('barbersGrid');
         const emptyState = document.getElementById('emptyState');
         
-        // Проверяем, что все элементы существуют
-        console.log('addBarberForm exists:', !!addBarberForm);
-        console.log('masterLoginForm exists:', !!masterLoginForm);
-        console.log('addBarberModal exists:', !!addBarberModal);
-        console.log('masterLoginModal exists:', !!masterLoginModal);
-        console.log('barbersGrid exists:', !!barbersGrid);
+        // Загружаем модальное окно записи
+        fetch('/static/booking_modal.html')
+            .then(response => response.text())
+            .then(html => {
+                const container = document.getElementById('bookingModalContainer');
+                if (container) {
+                    container.innerHTML = html;
+                }
+            })
+            .catch(error => console.error('Error loading booking modal:', error));
         
         // Открыть модальное окно добавления барбера
         function openAddBarberModal() {
@@ -473,33 +480,6 @@
             }
         }
         
-        // Функция для добавления барбера по коду
-        async function addBarberByCode(masterCode) {
-            try {
-                const formData = new FormData();
-                formData.append('master_code', masterCode);
-                
-                const response = await fetch('/add_barber', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    renderBarbers(result.barbers);
-                    return true;
-                } else {
-                    alert(result.message);
-                    return false;
-                }
-            } catch (error) {
-                console.error('Error adding barber:', error);
-                alert('Ошибка подключения к серверу');
-                return false;
-            }
-        }
-        
         // Добавление барбера по коду
         if (addBarberForm) {
             addBarberForm.addEventListener('submit', async function(e) {
@@ -537,11 +517,19 @@
                         
                         if (result.barbers && result.barbers.length > 0) {
                             renderBarbers(result.barbers);
+                            // Автоматически открываем окно записи к только что добавленному барберу
+                            const newBarber = result.barbers[result.barbers.length - 1];
+                            if (window.openBookingModal && newBarber) {
+                                // Даем время для отрисовки интерфейса
+                                setTimeout(() => {
+                                    window.openBookingModal(newBarber.code, newBarber.name, newBarber.avatar);
+                                }, 300);
+                            }
                         } else {
                             loadUserBarbers();
                         }
                         
-                        alert(result.message || 'Барбер успешно добавлен!');
+                        alert(result.message || 'Барбер успешно добавлен! Теперь вы можете записаться.');
                     } else {
                         alert(result.message || 'Ошибка при добавлении барбера');
                     }
@@ -559,109 +547,4 @@
             masterLoginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 
-                const loginCodeInput = document.getElementById('loginCode');
-                const passwordInput = document.getElementById('password');
-                
-                const loginCode = loginCodeInput ? loginCodeInput.value.trim().toUpperCase() : '';
-                const password = passwordInput ? passwordInput.value : '';
-                
-                if (!loginCode || !password) {
-                    alert('Введите код и пароль');
-                    return;
-                }
-                
-                try {
-                    const formData = new FormData();
-                    formData.append('login_code', loginCode);
-                    formData.append('password', password);
-                    
-                    console.log('Sending login request:', loginCode);
-                    
-                    const response = await fetch('/master_login', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const result = await response.json();
-                    console.log('Login result:', result);
-                    
-                    if (result.success) {
-                        alert('Успешный вход! Перенаправляем...');
-                        
-                        if (result.redirect) {
-                            setTimeout(() => {
-                                window.location.href = result.redirect;
-                            }, 500);
-                        }
-                    } else {
-                        alert(result.message || 'Ошибка при входе');
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('Произошла ошибка при подключении к серверу');
-                }
-            });
-        } else {
-            console.warn('masterLoginForm not found');
-        }
-        
-        // Рендеринг списка барберов
-        function renderBarbers(barbers) {
-            if (!barbersGrid) return;
-            
-            if (!barbers || barbers.length === 0) {
-                showEmptyState();
-                return;
-            }
-            
-            barbersGrid.innerHTML = barbers.map(barber => `
-                <div class="barber-card">
-                    <img src="${barber.avatar || '/static/default_barber.png'}" 
-                         alt="${barber.name}" 
-                         class="barber-avatar"
-                         onerror="this.src='/static/default_barber.png'">
-                    <div class="barber-name">${barber.name}</div>
-                    <div class="barber-code">Код: ${barber.code}</div>
-                    <button class="book-btn" onclick="bookWithBarber('${barber.code}', '${barber.name.replace(/'/g, "\\'")}')">
-                        Записаться
-                    </button>
-                </div>
-            `).join('');
-        }
-        
-        // Функция записи к барберу
-        function bookWithBarber(masterCode, masterName) {
-            alert(`Запись к барберу: ${masterName}\nКод: ${masterCode}\n\nФункция записи скоро будет доступна!`);
-        }
-        
-        // Закрытие модальных окон при клике вне их
-        window.addEventListener('click', function(e) {
-            if (addBarberModal && e.target === addBarberModal) {
-                closeAddBarberModal();
-            }
-            if (masterLoginModal && e.target === masterLoginModal) {
-                closeMasterLoginModal();
-            }
-        });
-        
-        // Закрытие модальных окон по Escape
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closeAddBarberModal();
-                closeMasterLoginModal();
-            }
-        });
-        
-        // Инициализация при загрузке страницы
-        window.addEventListener('DOMContentLoaded', () => {
-            console.log('DOM loaded, initializing...');
-            loadUserBarbers();
-        });
-        
-        // Также инициализируем при полной загрузке страницы
-        window.addEventListener('load', () => {
-            console.log('Page fully loaded');
-        });
-    </script>
-</body>
-</html>
+               
