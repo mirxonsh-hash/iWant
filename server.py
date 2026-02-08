@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 import logging
 from functools import wraps
-import json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-prod')
@@ -123,6 +122,7 @@ def init_db():
             ''')
             
         conn.commit()
+    logger.info("Database initialized successfully")
 
 # ==================== ГЛАВНЫЕ СТРАНИЦЫ ====================
 
@@ -221,22 +221,9 @@ def get_user_barbers():
         
         with get_db() as conn:
             with conn.cursor() as cur:
-                cur.execute('''
-                    SELECT c.master_code, m.full_name, m.avatar_url 
-                    FROM clients c
-                    JOIN masters m ON c.master_code = m.code
-                    WHERE c.user_id = %s AND m.is_active = TRUE
-                ''', (user_id,))
-                
-                barbers = []
-                for row in cur.fetchall():
-                    barbers.append({
-                        'code': row[0],
-                        'name': row[1],
-                        'avatar': row[2] or '/static/default_barber.png'
-                    })
-        
-        return jsonify({'success': True, 'barbers': barbers})
+                # Временное решение - всегда возвращаем пустой список
+                # Потом добавим миграцию для добавления столбца master_code
+                return jsonify({'success': True, 'barbers': []})
         
     except Exception as e:
         logger.error(f"Error getting user barbers: {e}")
@@ -265,43 +252,18 @@ def add_barber_web():
             if not master:
                 return jsonify({'success': False, 'message': 'Барбер не найден'})
             
-            # Проверяем дубликат
-            cur.execute('''
-                SELECT id FROM clients 
-                WHERE user_id = %s AND master_code = %s
-            ''', (user_id, master_code))
-            
-            if cur.fetchone():
-                return jsonify({'success': False, 'message': 'Барбер уже добавлен'})
-            
-            # Добавляем
+            # Добавляем в clients
             cur.execute('''
                 INSERT INTO clients (user_id, master_code, master_name)
                 VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, master_code) DO NOTHING
             ''', (user_id, master_code, master[0]))
             
             conn.commit()
-            
-            # Получаем обновленный список
-            cur.execute('''
-                SELECT c.master_code, m.full_name, m.avatar_url 
-                FROM clients c
-                JOIN masters m ON c.master_code = m.code
-                WHERE c.user_id = %s AND m.is_active = TRUE
-            ''', (user_id,))
-            
-            barbers = []
-            for row in cur.fetchall():
-                barbers.append({
-                    'code': row[0],
-                    'name': row[1],
-                    'avatar': row[2] or '/static/default_barber.png'
-                })
     
     return jsonify({
         'success': True,
-        'message': 'Барбер успешно добавлен',
-        'barbers': barbers
+        'message': 'Барбер успешно добавлен'
     })
 
 # ==================== API ДЛЯ БАРБЕРОВ ====================
@@ -421,17 +383,6 @@ def create_appointment_api():
         master_code = session['master_code']
     else:
         master_code = data.get('master_code', '').upper()
-        telegram_id = data.get('telegram_id')
-        
-        if telegram_id and master_code:
-            with get_db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('''
-                        INSERT INTO user_favorites (telegram_id, master_code)
-                        VALUES (%s, %s)
-                        ON CONFLICT DO NOTHING
-                    ''', (telegram_id, master_code))
-                conn.commit()
     
     required = ['client_name', 'client_phone', 'date', 'time']
     for field in required:
@@ -500,7 +451,7 @@ def update_appointment_status(app_id):
     
     return jsonify({'success': True})
 
-# ==================== НОВЫЕ API ДЛЯ БРОНИРОВАНИЯ ====================
+# ==================== API ДЛЯ ПРОВЕРКИ БАРБЕРОВ ====================
 
 @app.route('/api/barbers/check', methods=['POST'])
 def check_barber_exists():
@@ -695,33 +646,6 @@ def check_barber_code_api():
             'price': float(master[3]) if master[3] else 1000
         },
         'booked_slots': booked_slots
-    })
-
-# ==================== API ДЛЯ СТАТИСТИКИ ====================
-
-@app.route('/api/stats')
-@require_master
-def get_stats():
-    """Статистика барбера"""
-    master_code = session['master_code']
-    
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('''
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'completed' THEN price ELSE 0 END) as earnings,
-                    COUNT(DISTINCT client_phone) as unique_clients
-                FROM appointments 
-                WHERE master_code = %s
-            ''', (master_code,))
-            
-            stats = cur.fetchone()
-    
-    return jsonify({
-        'total_appointments': stats[0] or 0,
-        'total_earnings': float(stats[1] or 0),
-        'unique_clients': stats[2] or 0
     })
 
 # ==================== СТАТИЧЕСКИЕ ФАЙЛЫ ====================
