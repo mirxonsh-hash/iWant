@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        .booking-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .modal-booking-content {
+            background: #1a1a1a;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 420px;
+            border: 1px solid #333;
+            position: relative;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header-booking {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #333;
+            position: relative;
+        }
+        
+        .close-booking-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #333;
+            border: none;
+            color: #fff;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .barber-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .barber-avatar-large {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid #4a6fa5;
+        }
+        
+        .barber-details h3 {
+            color: #fff;
+            margin: 0 0 5px 0;
+            font-size: 18px;
+        }
+        
+        .barber-details p {
+            color: #888;
+            margin: 0;
+            font-size: 14px;
+        }
+        
+        .booking-steps {
+            padding: 0 20px 20px;
+        }
+        
+        .step {
+            margin-bottom: 25px;
+            display: none;
+        }
+        
+        .step.active {
+            display: block;
+        }
+        
+        .step-title {
+            color: #fff;
+            margin-bottom: 15px;
+            font-size: 16px;
+            text-align: center;
+        }
+        
+        .date-picker {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .date-item {
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 10px 5px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .date-item:hover {
+            background: #2a2a2a;
+            border-color: #444;
+        }
+        
+        .date-item.selected {
+            background: #4a6fa5;
+            border-color: #4a6fa5;
+            color: #fff;
+        }
+        
+        .date-item.booked {
+            background: #333;
+            border-color: #666;
+            color: #666;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        
+        .date-day {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 3px;
+        }
+        
+        .date-item.selected .date-day,
+        .date-item.selected .date-number {
+            color: #fff;
+        }
+        
+        .date-item.booked .date-day,
+        .date-item.booked .date-number {
+            color: #666;
+        }
+        
+        .date-number {
+            font-size: 16px;
+            font-weight: 500;
+            color: #fff;
+        }
+        
+        .time-picker {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        
+        .time-slot {
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px 5px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        .time-slot:hover {
+            background: #2a2a2a;
+            border-color: #444;
+        }
+        
+        .time-slot.selected {
+            background: #4a6fa5;
+            border-color: #4a6fa5;
+            color: #fff;
+        }
+        
+        .time-slot.booked {
+            background: #333;
+            border-color: #666;
+            color: #666;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        
+        .form-input-booking {
+            width: 100%;
+            padding: 12px;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        
+        .form-input-booking:focus {
+            outline: none;
+            border-color: #666;
+        }
+        
+        .booking-navigation {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            border-top: 1px solid #333;
+            gap: 10px;
+        }
+        
+        .nav-btn {
+            padding: 12px 20px;
+            background: #333;
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+            flex: 1;
+        }
+        
+        .nav-btn:hover {
+            background: #444;
+        }
+        
+        .nav-btn.primary {
+            background: #4a6fa5;
+        }
+        
+        .nav-btn.primary:hover {
+            background: #5a7fb5;
+        }
+        
+        .nav-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .service-select {
+            width: 100%;
+            padding: 12px;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+        
+        .price-display {
+            text-align: center;
+            color: #4a6fa5;
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0 20px;
+        }
+        
+        .confirmation-details {
+            background: #222;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .confirmation-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            color: #888;
+            font-size: 14px;
+        }
+        
+        .confirmation-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .confirmation-value {
+            color: #fff;
+        }
+        
+        .booking-success {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        
+        .success-icon {
+            font-size: 48px;
+            color: #28a745;
+            margin-bottom: 20px;
+        }
+        
+        .success-title {
+            color: #fff;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        
+        .success-message {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .month-navigation {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 0 10px;
+        }
+        
+        .month-btn {
+            background: #333;
+            border: none;
+            color: #fff;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .current-month {
+            color: #fff;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .week-days {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 0 10px;
+        }
+        
+        .week-day {
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="bookingModal" class="booking-modal">
+        <div class="modal-booking-content">
+            <div class="modal-header-booking">
+                <button class="close-booking-btn" onclick="closeBookingModal()">×</button>
+                <div class="barber-info" id="bookingBarberInfo">
+                    <img src="/static/default_barber.png" alt="Барбер" class="barber-avatar-large" id="bookingBarberAvatar">
+                    <div class="barber-details">
+                        <h3 id="bookingBarberName"></h3>
+                        <p>Код: <span id="bookingBarberCode"></span></p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="booking-steps">
+                <!-- Шаг 1: Выбор даты -->
+                <div class="step active" id="stepDate">
+                    <div class="step-title">Выберите дату записи</div>
+                    <div class="month-navigation">
+                        <button class="month-btn" onclick="changeMonth(-1)">←</button>
+                        <div class="current-month" id="currentBookingMonth"></div>
+                        <button class="month-btn" onclick="changeMonth(1)">→</button>
+                    </div>
+                    <div class="week-days">
+                        <div class="week-day">Пн</div>
+                        <div class="week-day">Вт</div>
+                        <div class="week-day">Ср</div>
+                        <div class="week-day">Чт</div>
+                        <div class="week-day">Пт</div>
+                        <div class="week-day">Сб</div>
+                        <div class="week-day">Вс</div>
+                    </div>
+                    <div class="date-picker" id="datePicker">
+                        <!-- Даты будут сгенерированы JavaScript -->
+                    </div>
+                </div>
+                
+                <!-- Шаг 2: Выбор времени -->
+                <div class="step" id="stepTime">
+                    <div class="step-title">Выберите время</div>
+                    <div class="time-picker" id="timePicker">
+                        <!-- Временные слоты будут сгенерированы JavaScript -->
+                    </div>
+                </div>
+                
+                <!-- Шаг 3: Выбор услуги -->
+                <div class="step" id="stepService">
+                    <div class="step-title">Выберите услугу</div>
+                    <select class="service-select" id="serviceSelect">
+                        <option value="Стрижка">Стрижка</option>
+                        <option value="Бритье">Бритье</option>
+                        <option value="Стрижка + Бритье">Стрижка + Бритье</option>
+                        <option value="Окрашивание">Окрашивание</option>
+                        <option value="Уход">Уход</option>
+                    </select>
+                    <div class="price-display" id="servicePrice">1000 ₽</div>
+                </div>
+                
+                <!-- Шаг 4: Ввод данных -->
+                <div class="step" id="stepDetails">
+                    <div class="step-title">Ваши данные</div>
+                    <input type="text" class="form-input-booking" id="clientNameInput" placeholder="Ваше имя" required>
+                    <input type="tel" class="form-input-booking" id="clientPhoneInput" placeholder="Телефон" required>
+                    <textarea class="form-input-booking" id="clientNotes" placeholder="Примечания (необязательно)" rows="2"></textarea>
+                </div>
+                
+                <!-- Шаг 5: Подтверждение -->
+                <div class="step" id="stepConfirm">
+                    <div class="step-title">Подтверждение записи</div>
+                    <div class="confirmation-details">
+                        <div class="confirmation-item">
+                            <span>Барбер:</span>
+                            <span class="confirmation-value" id="confirmBarberName"></span>
+                        </div>
+                        <div class="confirmation-item">
+                            <span>Дата:</span>
+                            <span class="confirmation-value" id="confirmDate"></span>
+                        </div>
+                        <div class="confirmation-item">
+                            <span>Время:</span>
+                            <span class="confirmation-value" id="confirmTime"></span>
+                        </div>
+                        <div class="confirmation-item">
+                            <span>Услуга:</span>
+                            <span class="confirmation-value" id="confirmService"></span>
+                        </div>
+                        <div class="confirmation-item">
+                            <span>Имя:</span>
+                            <span class="confirmation-value" id="confirmClientName"></span>
+                        </div>
+                        <div class="confirmation-item">
+                            <span>Телефон:</span>
+                            <span class="confirmation-value" id="confirmPhone"></span>
+                        </div>
+                        <div class="confirmation-item" style="color: #4a6fa5; font-weight: bold;">
+                            <span>Стоимость:</span>
+                            <span class="confirmation-value" id="confirmPrice"></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Шаг 6: Успешно -->
+                <div class="step" id="stepSuccess">
+                    <div class="booking-success">
+                        <div class="success-icon">✓</div>
+                        <div class="success-title">Запись успешно создана!</div>
+                        <div class="success-message">
+                            Вы записаны к <span id="successBarberName"></span><br>
+                            на <span id="successDateTime"></span>
+                        </div>
+                        <button class="nav-btn primary" onclick="closeBookingModal()">Отлично!</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="booking-navigation">
+                <button class="nav-btn" id="prevBtn" onclick="prevStep()" style="display: none;">Назад</button>
+                <button class="nav-btn primary" id="nextBtn" onclick="nextStep()">Далее</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
