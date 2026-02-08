@@ -1,14 +1,15 @@
-# server.py
-from flask import Flask, request, jsonify, session, render_template, redirect
+# server.py - ПОЛНЫЙ КОД С ВЕБ-ИНТЕРФЕЙСОМ И API
+from flask import Flask, request, jsonify, session, render_template, redirect, url_for
 import os
 import uuid
 import psycopg2
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 import logging
+from functools import wraps
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-key-change-me')
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-prod')
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 logging.basicConfig(level=logging.INFO)
@@ -26,18 +27,35 @@ DB_CONFIG = {
 TELEGRAM_TOKEN = '7662525969:AAF33YcsBM8OmeURyarjx-bNxF9ghOVGRNc'
 OWNER_ID = 531822805
 
+# Декораторы
+def require_user(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            session['user_id'] = str(uuid.uuid4())
+        return f(*args, **kwargs)
+    return decorated_function
+
+def require_master(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'master_code' not in session:
+            return jsonify({'error': 'Требуется вход мастера'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Подключение к БД
 def get_db():
     try:
         return psycopg2.connect(**DB_CONFIG)
     except Exception as e:
-        logger.error(f"DB error: {e}")
+        logger.error(f"DB connection error: {e}")
         return None
 
+# Инициализация БД
 def init_db():
-    """Создаем таблицы если их нет"""
     with get_db() as conn:
         with conn.cursor() as cur:
-            # Барберы
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS masters (
                     id SERIAL PRIMARY KEY,
@@ -46,16 +64,15 @@ def init_db():
                     phone VARCHAR(20),
                     password_hash VARCHAR(255),
                     price DECIMAL(10,2) DEFAULT 1000,
-                    is_active BOOL DEFAULT TRUE,
+                    is_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
-            # Записи
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS appointments (
                     id SERIAL PRIMARY KEY,
-                    master_code VARCHAR(20) REFERENCES masters(code),
+                    master_code VARCHAR(20),
                     client_name VARCHAR(200),
                     client_phone VARCHAR(20),
                     service_type VARCHAR(100),
@@ -67,7 +84,17 @@ def init_db():
                 )
             ''')
             
-            # Пользователи Telegram
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS clients (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(100),
+                    master_code VARCHAR(20),
+                    master_name VARCHAR(200),
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, master_code)
+                )
+            ''')
+            
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS telegram_users (
                     telegram_id VARCHAR(100) PRIMARY KEY,
@@ -76,7 +103,6 @@ def init_db():
                 )
             ''')
             
-            # Избранные барберы
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS user_favorites (
                     telegram_id VARCHAR(100),
@@ -91,39 +117,46 @@ def init_db():
 # ==================== ГЛАВНЫЕ СТРАНИЦЫ ====================
 
 @app.route('/')
+@require_user
 def index():
-    session['user_id'] = session.get('user_id', str(uuid.uuid4()))
     return render_template('index.html')
 
 @app.route('/master_login', methods=['GET', 'POST'])
 def master_login():
-    if request.method == 'POST':
-        data = request.get_json() or request.form
-        code = data.get('login_code', '').upper()
-        password = data.get('password', '')
-        
-        with get_db() as conn:
-            with conn.cursor() as cur:
-                cur.execute('''
-                    SELECT full_name, password_hash FROM masters 
-                    WHERE code = %s AND is_active = TRUE
-                ''', (code,))
-                master = cur.fetchone()
-                
-                if master and check_password_hash(master[1], password):
-                    session['master_code'] = code
-                    session['master_name'] = master[0]
-                    return jsonify({'success': True, 'redirect': '/master_panel'})
-                
-                return jsonify({'success': False, 'message': 'Неверный код или пароль'})
+    if request.method == 'GET':
+        return render_template('master_login.html')
     
-    return render_template('master_login.html')
+    login_code = request.form.get('login_code', '').upper()
+    password = request.form.get('password', '')
+    
+    if not login_code or not password:
+        return jsonify({'success': False, 'message': 'Введите код и пароль'})
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT m.full_name, m.password_hash 
+                FROM masters m 
+                WHERE m.code = %s AND m.is_active = TRUE
+            ''', (login_code,))
+            
+            master = cur.fetchone()
+            
+            if not master or not check_password_hash(master[1], password):
+                return jsonify({'success': False, 'message': 'Неверный код или пароль'})
+            
+            session['master_code'] = login_code
+            session['master_name'] = master[0]
+            session.permanent = True
+    
+    return jsonify({
+        'success': True,
+        'redirect': '/master_panel'
+    })
 
 @app.route('/master_panel')
+@require_master
 def master_panel():
-    if 'master_code' not in session:
-        return redirect('/master_login')
-    
     return render_template('master_panel.html', 
                          master_name=session['master_name'],
                          master_code=session['master_code'])
@@ -133,11 +166,105 @@ def logout():
     session.clear()
     return redirect('/')
 
+# ==================== API ДЛЯ ВЕБ-ИНТЕРФЕЙСА ====================
+
+@app.route('/get_user_barbers')
+@require_user
+def get_user_barbers():
+    """Получить барберов пользователя (веб)"""
+    try:
+        user_id = session['user_id']
+        
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''
+                    SELECT c.master_code, m.full_name, m.avatar_url 
+                    FROM clients c
+                    JOIN masters m ON c.master_code = m.code
+                    WHERE c.user_id = %s AND m.is_active = TRUE
+                ''', (user_id,))
+                
+                barbers = []
+                for row in cur.fetchall():
+                    barbers.append({
+                        'code': row[0],
+                        'name': row[1],
+                        'avatar': row[2] or '/static/default_barber.png'
+                    })
+        
+        return jsonify({'success': True, 'barbers': barbers})
+        
+    except Exception as e:
+        logger.error(f"Error getting user barbers: {e}")
+        return jsonify({'success': False, 'barbers': []})
+
+@app.route('/add_barber', methods=['POST'])
+@require_user
+def add_barber_web():
+    """Добавить барбера (веб)"""
+    user_id = session['user_id']
+    master_code = request.form.get('master_code', '').strip().upper()
+    
+    if not master_code:
+        return jsonify({'success': False, 'message': 'Введите код барбера'})
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            # Проверяем барбера
+            cur.execute('''
+                SELECT full_name FROM masters 
+                WHERE code = %s AND is_active = TRUE
+            ''', (master_code,))
+            
+            master = cur.fetchone()
+            
+            if not master:
+                return jsonify({'success': False, 'message': 'Барбер не найден'})
+            
+            # Проверяем дубликат
+            cur.execute('''
+                SELECT id FROM clients 
+                WHERE user_id = %s AND master_code = %s
+            ''', (user_id, master_code))
+            
+            if cur.fetchone():
+                return jsonify({'success': False, 'message': 'Барбер уже добавлен'})
+            
+            # Добавляем
+            cur.execute('''
+                INSERT INTO clients (user_id, master_code, master_name)
+                VALUES (%s, %s, %s)
+            ''', (user_id, master_code, master[0]))
+            
+            conn.commit()
+            
+            # Получаем обновленный список
+            cur.execute('''
+                SELECT c.master_code, m.full_name, m.avatar_url 
+                FROM clients c
+                JOIN masters m ON c.master_code = m.code
+                WHERE c.user_id = %s AND m.is_active = TRUE
+            ''', (user_id,))
+            
+            barbers = []
+            for row in cur.fetchall():
+                barbers.append({
+                    'code': row[0],
+                    'name': row[1],
+                    'avatar': row[2] or '/static/default_barber.png'
+                })
+    
+    return jsonify({
+        'success': True,
+        'message': 'Барбер успешно добавлен',
+        'barbers': barbers
+    })
+
 # ==================== API ДЛЯ БАРБЕРОВ ====================
 
 @app.route('/api/masters', methods=['POST'])
-def add_master():
-    """Добавить нового барбера (только для владельца)"""
+def api_add_master():
+    """Добавить барбера (бот)"""
     data = request.json
     owner_id = data.get('owner_id')
     
@@ -154,12 +281,12 @@ def add_master():
     
     with get_db() as conn:
         with conn.cursor() as cur:
-            # Проверяем уникальность кода
+            # Проверка уникальности
             cur.execute('SELECT id FROM masters WHERE code = %s', (code,))
             if cur.fetchone():
                 return jsonify({'error': 'Code already exists'}), 400
             
-            # Добавляем барбера
+            # Создание барбера
             cur.execute('''
                 INSERT INTO masters (code, full_name, phone, password_hash)
                 VALUES (%s, %s, %s, %s)
@@ -167,14 +294,14 @@ def add_master():
             ''', (code, full_name, phone, generate_password_hash(password)))
             
             master_id = cur.fetchone()[0]
-        
+            
         conn.commit()
     
     return jsonify({'success': True, 'master_id': master_id}), 201
 
 @app.route('/api/masters', methods=['GET'])
 def get_masters():
-    """Получить список барберов"""
+    """Получить всех барберов"""
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute('''
@@ -182,6 +309,7 @@ def get_masters():
                 FROM masters 
                 ORDER BY created_at DESC
             ''')
+            
             masters = []
             for row in cur.fetchall():
                 masters.append({
@@ -197,7 +325,7 @@ def get_masters():
 
 @app.route('/api/appointments', methods=['GET'])
 def get_appointments_api():
-    """Получить записи барбера"""
+    """Получить записи"""
     master_code = request.args.get('master_code') or session.get('master_code')
     date_from = request.args.get('from')
     date_to = request.args.get('to')
@@ -242,9 +370,9 @@ def create_appointment_api():
     """Создать запись"""
     data = request.json
     
-    if 'master_code' in session:  # Создает барбер
+    if 'master_code' in session:
         master_code = session['master_code']
-    else:  # Создает клиент через бота
+    else:
         master_code = data.get('master_code', '').upper()
         telegram_id = data.get('telegram_id')
         
@@ -263,7 +391,7 @@ def create_appointment_api():
         if not data.get(field):
             return jsonify({'error': f'Missing {field}'}), 400
     
-    # Проверяем доступность времени
+    # Проверка времени
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute('''
@@ -299,11 +427,9 @@ def create_appointment_api():
     return jsonify({'success': True, 'appointment_id': appointment_id}), 201
 
 @app.route('/api/appointments/<int:app_id>/status', methods=['PUT'])
+@require_master
 def update_appointment_status(app_id):
     """Обновить статус записи"""
-    if 'master_code' not in session:
-        return jsonify({'error': 'Unauthorized'}), 401
-    
     data = request.json
     status = data.get('status')
     
@@ -320,7 +446,7 @@ def update_appointment_status(app_id):
             
             if cur.rowcount == 0:
                 return jsonify({'error': 'Appointment not found'}), 404
-        
+            
         conn.commit()
     
     return jsonify({'success': True})
@@ -329,7 +455,7 @@ def update_appointment_status(app_id):
 
 @app.route('/api/telegram/check_code', methods=['POST'])
 def check_barber_code_api():
-    """Проверить код барбера для бота"""
+    """Проверить код барбера"""
     data = request.json
     code = data.get('code', '').upper()
     
@@ -349,7 +475,7 @@ def check_barber_code_api():
             if not master:
                 return jsonify({'exists': False}), 200
             
-            # Получаем занятые времена
+            # Занятые слоты
             today = datetime.now().date()
             week_later = today + timedelta(days=7)
             
@@ -381,7 +507,7 @@ def check_barber_code_api():
 
 @app.route('/api/telegram/user/<telegram_id>/favorites')
 def get_user_favorites(telegram_id):
-    """Получить избранных барберов пользователя"""
+    """Получить избранные барберы"""
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute('''
@@ -405,16 +531,13 @@ def get_user_favorites(telegram_id):
 # ==================== API ДЛЯ СТАТИСТИКИ ====================
 
 @app.route('/api/stats')
+@require_master
 def get_stats():
-    """Получить статистику барбера"""
-    master_code = request.args.get('master_code') or session.get('master_code')
-    
-    if not master_code:
-        return jsonify({'error': 'Master code required'}), 400
+    """Статистика барбера"""
+    master_code = session['master_code']
     
     with get_db() as conn:
         with conn.cursor() as cur:
-            # Общая статистика
             cur.execute('''
                 SELECT 
                     COUNT(*) as total,
@@ -432,9 +555,21 @@ def get_stats():
         'unique_clients': stats[2] or 0
     })
 
+# ==================== ОШИБКИ ====================
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(500)
+def server_error(e):
+    logger.error(f"Server error: {e}")
+    return jsonify({'error': 'Internal server error'}), 500
+
 # ==================== ЗАПУСК ====================
 
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(host='0.0.0.0', port=port, debug=debug)
