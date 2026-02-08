@@ -6,8 +6,6 @@ import psycopg2
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-import threading
-import requests
 import logging
 
 app = Flask(__name__)
@@ -96,7 +94,8 @@ def init_database():
                 user_id VARCHAR(100),
                 master_code VARCHAR(20),
                 master_name VARCHAR(200),
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, master_code)
             )
         ''')
         
@@ -107,6 +106,30 @@ def init_database():
                 master_code VARCHAR(20) UNIQUE,
                 password_hash VARCHAR(255),
                 last_login TIMESTAMP
+            )
+        ''')
+        
+        # Таблица пользователей Telegram (для запоминания барберов)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS telegram_users (
+                id SERIAL PRIMARY KEY,
+                telegram_id VARCHAR(100) UNIQUE NOT NULL,
+                first_name VARCHAR(100),
+                last_name VARCHAR(100),
+                username VARCHAR(100),
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Таблица связи пользователь-барбер
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS user_barbers (
+                id SERIAL PRIMARY KEY,
+                telegram_id VARCHAR(100),
+                master_code VARCHAR(20),
+                master_name VARCHAR(200),
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(telegram_id, master_code)
             )
         ''')
         
@@ -149,18 +172,37 @@ def index():
     
     return render_template('index.html', barbers=barbers)
 
-
 @app.route('/get_user_barbers')
 def get_user_barbers():
+    """Получить барберов текущего пользователя"""
     user_id = session.get('user_id')
     if not user_id:
         return jsonify({'success': False, 'barbers': []})
     
-    user_barbers = data_manager.get_client_masters(user_id)
-    return jsonify({'success': True, 'barbers': user_barbers})
+    conn = get_db_connection()
+    barbers = []
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT c.master_code, m.full_name, m.avatar_url 
+                FROM clients c
+                JOIN masters m ON c.master_code = m.code
+                WHERE c.user_id = %s AND m.is_active = TRUE
+            ''', (user_id,))
+            barbers = [{'code': row[0], 'name': row[1], 'avatar': row[2] or '/static/default_barber.png'} 
+                      for row in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching user barbers: {e}")
+        finally:
+            cur.close()
+            conn.close()
+    
+    return jsonify({'success': True, 'barbers': barbers})
 
 @app.route('/add_barber', methods=['POST'])
 def add_barber():
+    """Добавить барбера по коду (для веб-версии)"""
     user_id = session.get('user_id')
     master_code = request.form.get('master_code', '').strip().upper()
     
@@ -221,8 +263,12 @@ def add_barber():
         cur.close()
         conn.close()
 
-@app.route('/master_login', methods=['POST'])
+@app.route('/master_login', methods=['GET', 'POST'])
 def master_login():
+    """Вход для мастера"""
+    if request.method == 'GET':
+        return render_template('master_login.html')
+    
     master_code = request.form.get('login_code', '').strip().upper()
     password = request.form.get('password', '').strip()
     
@@ -292,8 +338,9 @@ def master_login():
 
 @app.route('/master_panel')
 def master_panel():
+    """Панель мастера"""
     if not session.get('is_master'):
-        return redirect('/')
+        return redirect('/master_login')
     
     master_id = session.get('master_id')
     master_code = session.get('master_code')
@@ -330,8 +377,8 @@ def master_panel():
                     SUM(CASE WHEN status = 'completed' THEN price ELSE 0 END) as total_earnings,
                     COUNT(DISTINCT client_phone) as unique_clients
                 FROM appointments 
-                WHERE master_code = %s
-            ''', (master_code,))
+                WHERE master_code = %s AND appointment_date BETWEEN %s AND %s
+            ''', (master_code, start_date, end_date))
             
             stats_row = cur.fetchone()
             if stats_row:
@@ -357,6 +404,7 @@ def master_panel():
 
 @app.route('/api/appointments')
 def get_appointments():
+    """API для получения записей мастера"""
     if not session.get('is_master'):
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -399,6 +447,7 @@ def get_appointments():
 
 @app.route('/api/add_appointment', methods=['POST'])
 def add_appointment():
+    """API для добавления записи мастером"""
     if not session.get('is_master'):
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -455,6 +504,7 @@ def add_appointment():
 
 @app.route('/api/update_appointment_status', methods=['POST'])
 def update_appointment_status():
+    """API для обновления статуса записи"""
     if not session.get('is_master'):
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -487,6 +537,7 @@ def update_appointment_status():
 
 @app.route('/api/master_stats')
 def get_master_stats():
+    """API для получения статистики мастера"""
     if not session.get('is_master'):
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -542,8 +593,298 @@ def get_master_stats():
 
 @app.route('/logout')
 def logout():
+    """Выход из системы"""
     session.clear()
     return redirect('/')
+
+# ==================== TELEGRAM MINI APP API ====================
+
+@app.route('/api/telegram_user', methods=['POST'])
+def save_telegram_user():
+    """Сохранить/обновить пользователя Telegram"""
+    try:
+        data = request.json
+        logger.info(f"Telegram user data: {data}")
+        
+        telegram_id = data.get('id')
+        first_name = data.get('first_name', '')
+        last_name = data.get('last_name', '')
+        username = data.get('username', '')
+        
+        if not telegram_id:
+            return jsonify({'success': False, 'message': 'No user ID'}), 400
+        
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'message': 'DB error'}), 500
+        
+        cur = conn.cursor()
+        
+        # Сохраняем пользователя
+        cur.execute('''
+            INSERT INTO telegram_users (telegram_id, first_name, last_name, username)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (telegram_id) 
+            DO UPDATE SET 
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                username = EXCLUDED.username
+            RETURNING id
+        ''', (telegram_id, first_name, last_name, username))
+        
+        conn.commit()
+        
+        # Возвращаем список барберов пользователя
+        cur.execute('''
+            SELECT ub.master_code, m.full_name, m.avatar_url
+            FROM user_barbers ub
+            JOIN masters m ON ub.master_code = m.code
+            WHERE ub.telegram_id = %s AND m.is_active = TRUE
+            ORDER BY ub.added_at DESC
+        ''', (telegram_id,))
+        
+        user_barbers = []
+        for row in cur.fetchall():
+            user_barbers.append({
+                'code': row[0],
+                'name': row[1],
+                'avatar': row[2] or '/static/default_barber.png'
+            })
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'user_barbers': user_barbers
+        })
+        
+    except Exception as e:
+        logger.error(f"Save telegram user error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/check_barber_code', methods=['POST'])
+def check_barber_code():
+    """Проверить код барбера (открыть окно записи)"""
+    try:
+        data = request.json
+        barber_code = data.get('code', '').strip().upper()
+        telegram_id = data.get('telegram_id')
+        
+        if not barber_code:
+            return jsonify({'success': False, 'message': 'Введите код барбера'}), 400
+        
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'message': 'Ошибка базы данных'}), 500
+        
+        cur = conn.cursor()
+        
+        # Проверяем барбера
+        cur.execute('''
+            SELECT id, full_name, avatar_url, price_per_hour 
+            FROM masters 
+            WHERE code = %s AND is_active = TRUE
+        ''', (barber_code,))
+        
+        barber = cur.fetchone()
+        
+        if not barber:
+            cur.close()
+            conn.close()
+            return jsonify({'success': False, 'message': 'Барбер не найден'}), 404
+        
+        barber_id, barber_name, avatar_url, price_per_hour = barber
+        
+        # Сохраняем связь пользователь-барбер
+        if telegram_id:
+            cur.execute('''
+                INSERT INTO user_barbers (telegram_id, master_code, master_name)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (telegram_id, master_code) DO NOTHING
+            ''', (telegram_id, barber_code, barber_name))
+            conn.commit()
+        
+        # Получаем занятые слоты на ближайшие 7 дней
+        today = datetime.now().date()
+        week_later = today + timedelta(days=7)
+        
+        cur.execute('''
+            SELECT appointment_date, appointment_time, duration_minutes
+            FROM appointments 
+            WHERE master_code = %s 
+            AND appointment_date BETWEEN %s AND %s
+            AND status != 'cancelled'
+            ORDER BY appointment_date, appointment_time
+        ''', (barber_code, today, week_later))
+        
+        booked_slots = []
+        for row in cur.fetchall():
+            booked_slots.append({
+                'date': row[0].strftime('%Y-%m-%d'),
+                'time': row[1].strftime('%H:%M'),
+                'duration': row[2]
+            })
+        
+        # Генерируем доступные времена 8:00-21:00
+        available_times = []
+        for hour in range(8, 21):
+            for minute in [0, 30]:
+                time_str = f"{hour:02d}:{minute:02d}"
+                available_times.append(time_str)
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'barber': {
+                'id': barber_id,
+                'code': barber_code,
+                'name': barber_name,
+                'avatar': avatar_url or '/static/default_barber.png',
+                'price': float(price_per_hour) if price_per_hour else 1000.00
+            },
+            'booked_slots': booked_slots,
+            'available_times': available_times,
+            'work_hours': {'start': '08:00', 'end': '21:00'}
+        })
+        
+    except Exception as e:
+        logger.error(f"Check barber code error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/create_booking', methods=['POST'])
+def create_booking():
+    """Создать запись на стрижку"""
+    try:
+        data = request.json
+        
+        # Проверяем обязательные поля
+        required = ['telegram_id', 'barber_code', 'client_name', 
+                   'client_phone', 'service', 'date', 'time']
+        for field in required:
+            if not data.get(field):
+                return jsonify({'success': False, 'message': f'Не заполнено: {field}'}), 400
+        
+        barber_code = data['barber_code'].upper()
+        appointment_date = data['date']
+        appointment_time = data['time']
+        
+        # Проверяем время (8:00-21:00)
+        hour = int(appointment_time.split(':')[0])
+        if hour < 8 or hour >= 21:
+            return jsonify({'success': False, 'message': 'Время работы: 8:00-21:00'}), 400
+        
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'message': 'Ошибка базы данных'}), 500
+        
+        cur = conn.cursor()
+        
+        # Проверяем, не занято ли время
+        cur.execute('''
+            SELECT id FROM appointments 
+            WHERE master_code = %s 
+            AND appointment_date = %s 
+            AND appointment_time = %s
+            AND status != 'cancelled'
+        ''', (barber_code, appointment_date, appointment_time))
+        
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'success': False, 'message': 'Это время уже занято'}), 409
+        
+        # Получаем ID барбера
+        cur.execute('SELECT id, price_per_hour FROM masters WHERE code = %s', (barber_code,))
+        master = cur.fetchone()
+        
+        if not master:
+            cur.close()
+            conn.close()
+            return jsonify({'success': False, 'message': 'Барбер не найден'}), 404
+        
+        master_id, price_per_hour = master
+        
+        # Сохраняем связь пользователь-барбер
+        cur.execute('''
+            INSERT INTO user_barbers (telegram_id, master_code, master_name)
+            SELECT %s, %s, full_name FROM masters WHERE code = %s
+            ON CONFLICT (telegram_id, master_code) DO NOTHING
+        ''', (data['telegram_id'], barber_code, barber_code))
+        
+        # Создаем запись
+        cur.execute('''
+            INSERT INTO appointments 
+            (master_id, master_code, client_name, client_phone, service_type, price,
+             appointment_date, appointment_time, duration_minutes, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 60, 'pending')
+            RETURNING id
+        ''', (
+            master_id,
+            barber_code,
+            data['client_name'],
+            data['client_phone'],
+            data['service'],
+            float(price_per_hour) if price_per_hour else 1000.00,
+            appointment_date,
+            appointment_time
+        ))
+        
+        appointment_id = cur.fetchone()[0]
+        conn.commit()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'appointment_id': appointment_id,
+            'message': '✅ Запись успешно создана!'
+        })
+        
+    except Exception as e:
+        logger.error(f"Create booking error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/get_user_barbers/<telegram_id>')
+def get_user_barbers_api(telegram_id):
+    """Получить барберов пользователя"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'success': False, 'barbers': []})
+    
+    try:
+        cur = conn.cursor()
+        
+        cur.execute('''
+            SELECT ub.master_code, m.full_name, m.avatar_url
+            FROM user_barbers ub
+            JOIN masters m ON ub.master_code = m.code
+            WHERE ub.telegram_id = %s AND m.is_active = TRUE
+            ORDER BY ub.added_at DESC
+        ''', (telegram_id,))
+        
+        barbers = []
+        for row in cur.fetchall():
+            barbers.append({
+                'code': row[0],
+                'name': row[1],
+                'avatar': row[2] or '/static/default_barber.png'
+            })
+        
+        return jsonify({
+            'success': True,
+            'barbers': barbers
+        })
+        
+    except Exception as e:
+        logger.error(f"Get user barbers error: {e}")
+        return jsonify({'success': False, 'barbers': []})
+    finally:
+        cur.close()
+        conn.close()
 
 # ==================== TELEGRAM BOT API ====================
 
@@ -560,5 +901,125 @@ def api_add_master():
             return jsonify({'success': False, 'message': 'Не указан ID владельца'}), 400
         
         # Проверяем ID владельца
-        if int(owner
+        if int(owner_id) != OWNER_ID:
+            return jsonify({'success': False, 'message': 'Неавторизованный доступ'}), 403
+        
+        master_code = data.get('code', '').strip().upper()
+        full_name = data.get('full_name', '').strip()
+        phone = data.get('phone', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not all([master_code, full_name, phone, password]):
+            return jsonify({'success': False, 'message': 'Все поля обязательны'}), 400
+        
+        if len(password) < 6:
+            return jsonify({'success': False, 'message': 'Пароль должен быть не менее 6 символов'}), 400
+        
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'message': 'Ошибка базы данных'}), 500
+        
+        try:
+            cur = conn.cursor()
+            
+            # Проверяем, не существует ли уже такой код
+            cur.execute('SELECT id FROM masters WHERE code = %s', (master_code,))
+            if cur.fetchone():
+                return jsonify({'success': False, 'message': 'Код уже существует'}), 400
+            
+            # Создаем мастера
+            cur.execute('''
+                INSERT INTO masters (code, full_name, phone, created_by)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+            ''', (master_code, full_name, phone, owner_id))
+            
+            master_id = cur.fetchone()[0]
+            
+            # Создаем учетные данные
+            password_hash = generate_password_hash(password)
+            cur.execute('''
+                INSERT INTO masters_auth (master_code, password_hash)
+                VALUES (%s, %s)
+            ''', (master_code, password_hash))
+            
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Барбер успешно создан',
+                'data': {
+                    'code': master_code,
+                    'full_name': full_name,
+                    'phone': phone,
+                    'password': password
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error adding master: {e}")
+            conn.rollback()
+            return jsonify({'success': False, 'message': str(e)}), 500
+        finally:
+            cur.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"API add_master error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'}), 500
 
+@app.route('/api/telegram/get_masters', methods=['POST'])
+def api_get_masters():
+    """API для получения списка барберов"""
+    try:
+        data = request.json
+        owner_id = data.get('owner_id')
+        
+        if not owner_id or int(owner_id) != OWNER_ID:
+            return jsonify({'success': False, 'message': 'Неавторизованный доступ'}), 403
+        
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'message': 'Ошибка базы данных'}), 500
+        
+        try:
+            cur = conn.cursor()
+            
+            cur.execute('''
+                SELECT m.code, m.full_name, m.phone, m.is_active,
+                       COUNT(DISTINCT ub.telegram_id) as client_count
+                FROM masters m
+                LEFT JOIN user_barbers ub ON m.code = ub.master_code
+                WHERE m.created_by = %s
+                GROUP BY m.id, m.code, m.full_name, m.phone, m.is_active
+                ORDER BY m.created_at DESC
+            ''', (owner_id,))
+            
+            masters = []
+            for row in cur.fetchall():
+                masters.append({
+                    'code': row[0],
+                    'full_name': row[1],
+                    'phone': row[2],
+                    'is_active': row[3],
+                    'client_count': row[4] or 0
+                })
+            
+            return jsonify({
+                'success': True,
+                'masters': masters
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting masters: {e}")
+            return jsonify({'success': False, 'message': str(e)}), 500
+        finally:
+            cur.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"API get_masters error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
