@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iWant - Барберы</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background-color: #0a0a0a;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid #333;
+        }
+        
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid #444;
+        }
+        
+        .main-content {
+            text-align: center;
+            padding: 60px 20px;
+        }
+        
+        .add-button {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: #fff;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .add-button:hover {
+            transform: scale(1.05);
+        }
+        
+        .plus-circle {
+            width: 80px;
+            height: 80px;
+            background: #222;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            border: 2px solid #444;
+        }
+        
+        .button-label {
+            font-size: 18px;
+            color: #aaa;
+        }
+        
+        .master-button {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: transparent;
+            border: none;
+            color: #666;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 10px 20px;
+        }
+        
+        .master-button:hover {
+            color: #888;
+        }
+        
+        /* Модальные окна */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: #1a1a1a;
+            padding: 30px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            border: 1px solid #333;
+        }
+        
+        .modal-header {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .modal-title {
+            font-size: 20px;
+            color: #fff;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 16px;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #666;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #333;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #444;
+        }
+        
+        .btn-primary {
+            background: #4a6fa5;
+        }
+        
+        .btn-primary:hover {
+            background: #5a7fb5;
+        }
+        
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #666;
+            font-size: 24px;
+            cursor: pointer;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .close-btn:hover {
+            color: #fff;
+        }
+        
+        /* Сетка барберов */
+        .barbers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+            padding: 20px;
+        }
+        
+        .barber-card {
+            background: #1a1a1a;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            border: 1px solid #333;
+            transition: transform 0.2s;
+        }
+        
+        .barber-card:hover {
+            transform: translateY(-5px);
+            border-color: #444;
+        }
+        
+        .barber-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-bottom: 10px;
+            border: 2px solid #444;
+        }
+        
+        .barber-name {
+            font-size: 14px;
+            color: #fff;
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        .file-label {
+            display: block;
+            padding: 10px;
+            background: #222;
+            border: 1px dashed #444;
+            border-radius: 6px;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 15px;
+            color: #888;
+        }
+        
+        .file-label:hover {
+            background: #252525;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">iWant</div>
+        <img id="userAvatar" src="/static/default_avatar.png" alt="Аватар" class="user-avatar">
+    </div>
+    
+    <div class="main-content">
+        <div class="add-button" onclick="openAddBarberModal()">
+            <div class="plus-circle">+</div>
+            <div class="button-label">добавить барбера</div>
+        </div>
+        
+        <div id="barbersGrid" class="barbers-grid">
+            <!-- Барберы будут добавляться сюда -->
+        </div>
+        
+        <button class="master-button" onclick="openMasterLoginModal()">я мастер</button>
+    </div>
+    
+    <!-- Модальное окно добавления барбера -->
+    <div id="addBarberModal" class="modal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closeAddBarberModal()">×</button>
+            <div class="modal-header">
+                <div class="modal-title">Добавить барбера</div>
+            </div>
+            <form id="addBarberForm">
+                <div class="form-group">
+                    <label for="barberName" style="display: block; margin-bottom: 8px; color: #aaa;">Имя барбера</label>
+                    <input type="text" id="barberName" class="form-input" placeholder="Введите имя" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="barberAvatar" class="file-label">
+                        📁 Загрузить аватарку
+                    </label>
+                    <input type="file" id="barberAvatar" class="file-input" accept="image/*">
+                    <div id="fileName" style="color: #666; font-size: 14px; margin-top: 5px;"></div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Сохранить барбера</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Модальное окно входа для мастера -->
+    <div id="masterLoginModal" class="modal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closeMasterLoginModal()">×</button>
+            <div class="modal-header">
+                <div class="modal-title">Вход для мастера</div>
+            </div>
+            <form id="masterLoginForm">
+                <div class="form-group">
+                    <input type="text" id="username" class="form-input" placeholder="Логин" required>
+                </div>
+                
+                <div class="form-group">
+                    <input type="password" id="password" class="form-input" placeholder="Пароль" required>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Войти</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Элементы DOM
+        const addBarberModal = document.getElementById('addBarberModal');
+        const masterLoginModal = document.getElementById('masterLoginModal');
+        const addBarberForm = document.getElementById('addBarberForm');
+        const masterLoginForm = document.getElementById('masterLoginForm');
+        const barbersGrid = document.getElementById('barbersGrid');
+        const barberAvatarInput = document.getElementById('barberAvatar');
+        const fileName = document.getElementById('fileName');
+        
+        // Открыть модальное окно добавления барбера
+        function openAddBarberModal() {
+            addBarberModal.style.display = 'flex';
+        }
+        
+        // Закрыть модальное окно добавления барбера
+        function closeAddBarberModal() {
+            addBarberModal.style.display = 'none';
+            addBarberForm.reset();
+            fileName.textContent = '';
+        }
+        
+        // Открыть модальное окно входа мастера
+        function openMasterLoginModal() {
+            masterLoginModal.style.display = 'flex';
+        }
+        
+        // Закрыть модальное окно входа мастера
+        function closeMasterLoginModal() {
+            masterLoginModal.style.display = 'none';
+            masterLoginForm.reset();
+        }
+        
+        // Обработчик выбора файла
+        barberAvatarInput.addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                fileName.textContent = `Выбран файл: ${e.target.files[0].name}`;
+            } else {
+                fileName.textContent = '';
+            }
+        });
+        
+        // Добавление барбера
+        addBarberForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('name', document.getElementById('barberName').value);
+            
+            if (barberAvatarInput.files[0]) {
+                formData.append('avatar', barberAvatarInput.files[0]);
+            }
+            
+            try {
+                const response = await fetch('/add_barber', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    closeAddBarberModal();
+                    loadBarbers();
+                    alert('Барбер успешно добавлен!');
+                } else {
+                    alert('Ошибка при добавлении барбера');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Произошла ошибка');
+            }
+        });
+        
+        // Вход мастера
+        masterLoginForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('username', document.getElementById('username').value);
+            formData.append('password', document.getElementById('password').value);
+            
+            try {
+                const response = await fetch('/master_login', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    closeMasterLoginModal();
+                    alert('Успешный вход! Теперь вы мастер.');
+                } else {
+                    alert('Неверные данные для входа');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Произошла ошибка');
+            }
+        });
+        
+        // Загрузка списка барберов
+        async function loadBarbers() {
+            try {
+                const response = await fetch('/get_barbers');
+                const result = await response.json();
+                
+                if (result.barbers && result.barbers.length > 0) {
+                    barbersGrid.innerHTML = result.barbers.map(barber => `
+                        <div class="barber-card">
+                            <img src="${barber.avatar}" alt="${barber.name}" class="barber-avatar">
+                            <div class="barber-name">${barber.name}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    barbersGrid.innerHTML = '<div style="grid-column: 1 / -1; color: #666; text-align: center; padding: 40px;">Пока нет добавленных барберов</div>';
+                }
+            } catch (error) {
+                console.error('Error loading barbers:', error);
+            }
+        }
+        
+        // Проверка статуса мастера при загрузке
+        async function checkMasterStatus() {
+            try {
+                const response = await fetch('/check_master');
+                const result = await response.json();
+                
+                if (result.is_master) {
+                    // Можно добавить специальный функционал для мастера
+                }
+            } catch (error) {
+                console.error('Error checking master status:', error);
+            }
+        }
+        
+        // Закрытие модальных окон при клике вне их
+        window.addEventListener('click', function(e) {
+            if (e.target === addBarberModal) {
+                closeAddBarberModal();
+            }
+            if (e.target === masterLoginModal) {
+                closeMasterLoginModal();
+            }
+        });
+        
+        // Инициализация при загрузке страницы
+        window.addEventListener('DOMContentLoaded', () => {
+            loadBarbers();
+            checkMasterStatus();
+        });
+    </script>
+</body>
+</html>
