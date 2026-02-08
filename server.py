@@ -58,7 +58,7 @@ def get_db():
 def init_db():
     with get_db() as conn:
         with conn.cursor() as cur:
-            # Исправленная таблица masters
+            # Таблица masters
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS masters (
                     id SERIAL PRIMARY KEY,
@@ -73,7 +73,7 @@ def init_db():
                 )
             ''')
             
-            # Исправленная таблица appointments
+            # Таблица appointments
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS appointments (
                     id SERIAL PRIMARY KEY,
@@ -87,12 +87,11 @@ def init_db():
                     duration_minutes INTEGER DEFAULT 60,
                     notes TEXT,
                     status VARCHAR(20) DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    CONSTRAINT fk_master FOREIGN KEY (master_code) REFERENCES masters(code)
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
-            # Исправленная таблица clients
+            # Таблица clients
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS clients (
                     id SERIAL PRIMARY KEY,
@@ -100,14 +99,28 @@ def init_db():
                     master_code VARCHAR(20) NOT NULL,
                     master_name VARCHAR(200) NOT NULL,
                     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_id, master_code),
-                    CONSTRAINT fk_master_client FOREIGN KEY (master_code) REFERENCES masters(code)
+                    UNIQUE(user_id, master_code)
                 )
             ''')
             
-             # Индексы для производительности (убрали проблемный индекс)
-            cur.execute('CREATE INDEX IF NOT EXISTS idx_clients_user_id ON clients(user_id)')
-            cur.execute('CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)')
+            # Таблица telegram_users
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS telegram_users (
+                    telegram_id VARCHAR(100) PRIMARY KEY,
+                    username VARCHAR(100),
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Таблица user_favorites
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS user_favorites (
+                    telegram_id VARCHAR(100),
+                    master_code VARCHAR(20),
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (telegram_id, master_code)
+                )
+            ''')
             
         conn.commit()
 
@@ -551,7 +564,12 @@ def get_available_slots():
                 ORDER BY appointment_time
             ''', (master_code, date))
             
-            booked_times = [row[0][:5] for row in cur.fetchall()]  # Берем только часы:минуты
+            booked_times = []
+            rows = cur.fetchall()
+            for row in rows:
+                if row[0]:
+                    time_str = str(row[0])
+                    booked_times.append(time_str[:5])  # Берем только часы:минуты
             
             # Формируем список доступных слотов
             available_slots = []
@@ -570,13 +588,13 @@ def get_available_slots():
 
 @app.route('/api/bot/register_master', methods=['POST'])
 def bot_register_master():
-    """Регистрация барбера через бота (исправленная версия)"""
+    """Регистрация барбера через бота"""
     try:
         data = request.json
         
-        # Проверка владельца (упрощенная для демо)
+        # Проверка владельца
         owner_id = data.get('owner_id')
-        if not owner_id or int(owner_id) != OWNER_ID:
+        if OWNER_ID and owner_id and int(owner_id) != OWNER_ID:
             return jsonify({'success': False, 'message': 'Неавторизованный запрос'}), 403
         
         code = data.get('code', '').upper()
@@ -660,11 +678,13 @@ def check_barber_code_api():
             ''', (code, today, week_later))
             
             booked_slots = []
-            for row in cur.fetchall():
-                booked_slots.append({
-                    'date': row[0].isoformat(),
-                    'time': row[1][:5]
-                })
+            rows = cur.fetchall()
+            for row in rows:
+                if row[0] and row[1]:
+                    booked_slots.append({
+                        'date': row[0].isoformat() if hasattr(row[0], 'isoformat') else str(row[0]),
+                        'time': row[1][:5] if row[1] else ''
+                    })
     
     return jsonify({
         'exists': True,
@@ -728,5 +748,3 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     app.run(host='0.0.0.0', port=port, debug=debug)
-
-
