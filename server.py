@@ -1,12 +1,14 @@
-# server.py - ПОЛНЫЙ КОД С ВЕБ-ИНТЕРФЕЙСОМ И API
-from flask import Flask, request, jsonify, session, render_template, redirect, url_for
+# server.py - ПОЛНЫЙ ИСПРАВЛЕННЫЙ КОД
+from flask import Flask, request, jsonify, session, render_template, redirect, url_for, send_from_directory
 import os
 import uuid
 import psycopg2
+import re
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 import logging
 from functools import wraps
+import json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-prod')
@@ -56,6 +58,7 @@ def get_db():
 def init_db():
     with get_db() as conn:
         with conn.cursor() as cur:
+            # Исправленная таблица masters
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS masters (
                     id SERIAL PRIMARY KEY,
@@ -64,53 +67,48 @@ def init_db():
                     phone VARCHAR(20),
                     password_hash VARCHAR(255),
                     price DECIMAL(10,2) DEFAULT 1000,
+                    avatar_url VARCHAR(500),
                     is_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
+            # Исправленная таблица appointments
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS appointments (
                     id SERIAL PRIMARY KEY,
-                    master_code VARCHAR(20),
-                    client_name VARCHAR(200),
-                    client_phone VARCHAR(20),
-                    service_type VARCHAR(100),
-                    price DECIMAL(10,2),
-                    appointment_date DATE,
-                    appointment_time TIME,
+                    master_code VARCHAR(20) NOT NULL,
+                    client_name VARCHAR(200) NOT NULL,
+                    client_phone VARCHAR(20) NOT NULL,
+                    service_type VARCHAR(100) DEFAULT 'Стрижка',
+                    price DECIMAL(10,2) DEFAULT 1000,
+                    appointment_date DATE NOT NULL,
+                    appointment_time TIME NOT NULL,
+                    duration_minutes INTEGER DEFAULT 60,
+                    notes TEXT,
                     status VARCHAR(20) DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_master FOREIGN KEY (master_code) REFERENCES masters(code)
                 )
             ''')
             
+            # Исправленная таблица clients
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS clients (
                     id SERIAL PRIMARY KEY,
-                    user_id VARCHAR(100),
-                    master_code VARCHAR(20),
-                    master_name VARCHAR(200),
+                    user_id VARCHAR(100) NOT NULL,
+                    master_code VARCHAR(20) NOT NULL,
+                    master_name VARCHAR(200) NOT NULL,
                     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_id, master_code)
+                    UNIQUE(user_id, master_code),
+                    CONSTRAINT fk_master_client FOREIGN KEY (master_code) REFERENCES masters(code)
                 )
             ''')
             
-            cur.execute('''
-                CREATE TABLE IF NOT EXISTS telegram_users (
-                    telegram_id VARCHAR(100) PRIMARY KEY,
-                    username VARCHAR(100),
-                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            cur.execute('''
-                CREATE TABLE IF NOT EXISTS user_favorites (
-                    telegram_id VARCHAR(100),
-                    master_code VARCHAR(20),
-                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (telegram_id, master_code)
-                )
-            ''')
+            # Индексы для производительности
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_appointments_master_date ON appointments(master_code, appointment_date)')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_clients_user_id ON clients(user_id)')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_clients_master_code ON clients(master_code)')
             
         conn.commit()
 
@@ -157,9 +155,43 @@ def master_login():
 @app.route('/master_panel')
 @require_master
 def master_panel():
+    today = datetime.now().date()
+    start_date = request.args.get('from', today.strftime('%Y-%m-%d'))
+    end_date = request.args.get('to', (today + timedelta(days=7)).strftime('%Y-%m-%d'))
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT id, client_name, client_phone, service_type, price,
+                       appointment_date, appointment_time, duration_minutes,
+                       notes, status
+                FROM appointments 
+                WHERE master_code = %s 
+                AND appointment_date BETWEEN %s AND %s
+                ORDER BY appointment_date, appointment_time
+            ''', (session['master_code'], start_date, end_date))
+            
+            appointments = []
+            for row in cur.fetchall():
+                appointments.append({
+                    'id': row[0],
+                    'client_name': row[1],
+                    'client_phone': row[2],
+                    'service_type': row[3],
+                    'price': float(row[4]) if row[4] else None,
+                    'appointment_date': row[5].strftime('%Y-%m-%d') if row[5] else None,
+                    'appointment_time': str(row[6]) if row[6] else None,
+                    'duration_minutes': row[7] or 60,
+                    'notes': row[8],
+                    'status': row[9]
+                })
+    
     return render_template('master_panel.html', 
                          master_name=session['master_name'],
-                         master_code=session['master_code'])
+                         master_code=session['master_code'],
+                         appointments=appointments,
+                         start_date=start_date,
+                         end_date=end_date)
 
 @app.route('/logout')
 def logout():
@@ -212,7 +244,7 @@ def add_barber_web():
         with conn.cursor() as cur:
             # Проверяем барбера
             cur.execute('''
-                SELECT full_name FROM masters 
+                SELECT full_name, avatar_url FROM masters 
                 WHERE code = %s AND is_active = TRUE
             ''', (master_code,))
             
@@ -337,7 +369,8 @@ def get_appointments_api():
         with conn.cursor() as cur:
             query = '''
                 SELECT id, client_name, client_phone, service_type, price,
-                       appointment_date, appointment_time, status
+                       appointment_date, appointment_time, duration_minutes,
+                       notes, status
                 FROM appointments 
                 WHERE master_code = %s
             '''
@@ -360,7 +393,9 @@ def get_appointments_api():
                     'price': float(row[4]) if row[4] else None,
                     'date': row[5].isoformat() if row[5] else None,
                     'time': str(row[6]) if row[6] else None,
-                    'status': row[7]
+                    'duration_minutes': row[7] or 60,
+                    'notes': row[8],
+                    'status': row[9]
                 })
     
     return jsonify({'appointments': appointments})
@@ -407,8 +442,8 @@ def create_appointment_api():
             cur.execute('''
                 INSERT INTO appointments 
                 (master_code, client_name, client_phone, service_type, price,
-                 appointment_date, appointment_time, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending')
+                 appointment_date, appointment_time, duration_minutes, notes, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
                 RETURNING id
             ''', (
                 master_code,
@@ -417,7 +452,9 @@ def create_appointment_api():
                 data.get('service_type', 'Стрижка'),
                 data.get('price', 1000),
                 data['date'],
-                data['time']
+                data['time'],
+                data.get('duration_minutes', 60),
+                data.get('notes', ''),
             ))
             
             appointment_id = cur.fetchone()[0]
@@ -451,131 +488,7 @@ def update_appointment_status(app_id):
     
     return jsonify({'success': True})
 
-# ==================== API ДЛЯ TELEGRAM ====================
-
-@app.route('/api/telegram/check_code', methods=['POST'])
-def check_barber_code_api():
-    """Проверить код барбера"""
-    data = request.json
-    code = data.get('code', '').upper()
-    
-    if not code:
-        return jsonify({'error': 'Code required'}), 400
-    
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('''
-                SELECT code, full_name, phone, price 
-                FROM masters 
-                WHERE code = %s AND is_active = TRUE
-            ''', (code,))
-            
-            master = cur.fetchone()
-            
-            if not master:
-                return jsonify({'exists': False}), 200
-            
-            # Занятые слоты
-            today = datetime.now().date()
-            week_later = today + timedelta(days=7)
-            
-            cur.execute('''
-                SELECT appointment_date, appointment_time
-                FROM appointments 
-                WHERE master_code = %s 
-                AND appointment_date BETWEEN %s AND %s
-                AND status != 'cancelled'
-            ''', (code, today, week_later))
-            
-            booked_slots = []
-            for row in cur.fetchall():
-                booked_slots.append({
-                    'date': row[0].isoformat(),
-                    'time': str(row[1])
-                })
-    
-    return jsonify({
-        'exists': True,
-        'master': {
-            'code': master[0],
-            'full_name': master[1],
-            'phone': master[2],
-            'price': float(master[3]) if master[3] else 1000
-        },
-        'booked_slots': booked_slots
-    })
-
-@app.route('/api/telegram/user/<telegram_id>/favorites')
-def get_user_favorites(telegram_id):
-    """Получить избранные барберы"""
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('''
-                SELECT m.code, m.full_name, m.phone
-                FROM user_favorites uf
-                JOIN masters m ON uf.master_code = m.code
-                WHERE uf.telegram_id = %s AND m.is_active = TRUE
-                ORDER BY uf.added_at DESC
-            ''', (telegram_id,))
-            
-            favorites = []
-            for row in cur.fetchall():
-                favorites.append({
-                    'code': row[0],
-                    'full_name': row[1],
-                    'phone': row[2]
-                })
-    
-    return jsonify({'favorites': favorites})
-
-# ==================== API ДЛЯ СТАТИСТИКИ ====================
-
-@app.route('/api/stats')
-@require_master
-def get_stats():
-    """Статистика барбера"""
-    master_code = session['master_code']
-    
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('''
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'completed' THEN price ELSE 0 END) as earnings,
-                    COUNT(DISTINCT client_phone) as unique_clients
-                FROM appointments 
-                WHERE master_code = %s
-            ''', (master_code,))
-            
-            stats = cur.fetchone()
-    
-    return jsonify({
-        'total_appointments': stats[0] or 0,
-        'total_earnings': float(stats[1] or 0),
-        'unique_clients': stats[2] or 0
-    })
-
-# ==================== ОШИБКИ ====================
-
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify({'error': 'Not found'}), 404
-
-@app.errorhandler(500)
-def server_error(e):
-    logger.error(f"Server error: {e}")
-    return jsonify({'error': 'Internal server error'}), 500
-
-# ==================== ЗАПУСК ====================
-
-if __name__ == '__main__':
-    init_db()
-    port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
-    app.run(host='0.0.0.0', port=port, debug=debug)
-# server.py - ДОПОЛНЯЮ КОД
-
-# ==================== ДОБАВЛЯЮ ПОСЛЕ СУЩЕСТВУЮЩЕГО КОДА ====================
+# ==================== НОВЫЕ API ДЛЯ БРОНИРОВАНИЯ ====================
 
 @app.route('/api/barbers/check', methods=['POST'])
 def check_barber_exists():
@@ -631,7 +544,7 @@ def get_available_slots():
         with conn.cursor() as cur:
             # Получаем занятые слоты на выбранную дату
             cur.execute('''
-                SELECT appointment_time
+                SELECT appointment_time::text
                 FROM appointments 
                 WHERE master_code = %s 
                 AND appointment_date = %s
@@ -639,7 +552,7 @@ def get_available_slots():
                 ORDER BY appointment_time
             ''', (master_code, date))
             
-            booked_times = [str(row[0]) for row in cur.fetchall()]
+            booked_times = [row[0][:5] for row in cur.fetchall()]  # Берем только часы:минуты
             
             # Формируем список доступных слотов
             available_slots = []
@@ -653,3 +566,166 @@ def get_available_slots():
         'available_slots': available_slots,
         'booked_slots': booked_times
     })
+
+# ==================== API ДЛЯ TELEGRAM БОТА ====================
+
+@app.route('/api/bot/register_master', methods=['POST'])
+def bot_register_master():
+    """Регистрация барбера через бота (исправленная версия)"""
+    try:
+        data = request.json
+        
+        # Проверка владельца (упрощенная для демо)
+        owner_id = data.get('owner_id')
+        if not owner_id or int(owner_id) != OWNER_ID:
+            return jsonify({'success': False, 'message': 'Неавторизованный запрос'}), 403
+        
+        code = data.get('code', '').upper()
+        full_name = data.get('full_name')
+        phone = data.get('phone')
+        password = data.get('password')
+        
+        # Валидация данных
+        if not all([code, full_name, phone, password]):
+            return jsonify({'success': False, 'message': 'Все поля обязательны'}), 400
+        
+        if len(password) < 6:
+            return jsonify({'success': False, 'message': 'Пароль должен быть минимум 6 символов'}), 400
+        
+        if not re.match(r'^[A-Z0-9]{3,10}$', code):
+            return jsonify({'success': False, 'message': 'Код должен содержать только латинские буквы и цифры, 3-10 символов'}), 400
+        
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                # Проверка уникальности кода
+                cur.execute('SELECT id FROM masters WHERE code = %s', (code,))
+                if cur.fetchone():
+                    return jsonify({'success': False, 'message': 'Код уже используется'}), 400
+                
+                # Создание барбера
+                cur.execute('''
+                    INSERT INTO masters (code, full_name, phone, password_hash, price)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id
+                ''', (code, full_name, phone, generate_password_hash(password), 1000))
+                
+                master_id = cur.fetchone()[0]
+                
+            conn.commit()
+        
+        logger.info(f"New master registered via bot: {code} - {full_name}")
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Барбер успешно зарегистрирован',
+            'master_id': master_id,
+            'code': code
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in bot_register_master: {e}")
+        return jsonify({'success': False, 'message': 'Внутренняя ошибка сервера'}), 500
+
+@app.route('/api/telegram/check_code', methods=['POST'])
+def check_barber_code_api():
+    """Проверить код барбера"""
+    data = request.json
+    code = data.get('code', '').upper()
+    
+    if not code:
+        return jsonify({'error': 'Code required'}), 400
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT code, full_name, phone, price 
+                FROM masters 
+                WHERE code = %s AND is_active = TRUE
+            ''', (code,))
+            
+            master = cur.fetchone()
+            
+            if not master:
+                return jsonify({'exists': False}), 200
+            
+            # Занятые слоты
+            today = datetime.now().date()
+            week_later = today + timedelta(days=7)
+            
+            cur.execute('''
+                SELECT appointment_date, appointment_time::text
+                FROM appointments 
+                WHERE master_code = %s 
+                AND appointment_date BETWEEN %s AND %s
+                AND status != 'cancelled'
+            ''', (code, today, week_later))
+            
+            booked_slots = []
+            for row in cur.fetchall():
+                booked_slots.append({
+                    'date': row[0].isoformat(),
+                    'time': row[1][:5]
+                })
+    
+    return jsonify({
+        'exists': True,
+        'master': {
+            'code': master[0],
+            'full_name': master[1],
+            'phone': master[2],
+            'price': float(master[3]) if master[3] else 1000
+        },
+        'booked_slots': booked_slots
+    })
+
+# ==================== API ДЛЯ СТАТИСТИКИ ====================
+
+@app.route('/api/stats')
+@require_master
+def get_stats():
+    """Статистика барбера"""
+    master_code = session['master_code']
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'completed' THEN price ELSE 0 END) as earnings,
+                    COUNT(DISTINCT client_phone) as unique_clients
+                FROM appointments 
+                WHERE master_code = %s
+            ''', (master_code,))
+            
+            stats = cur.fetchone()
+    
+    return jsonify({
+        'total_appointments': stats[0] or 0,
+        'total_earnings': float(stats[1] or 0),
+        'unique_clients': stats[2] or 0
+    })
+
+# ==================== СТАТИЧЕСКИЕ ФАЙЛЫ ====================
+
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('static', filename)
+
+# ==================== ОШИБКИ ====================
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(500)
+def server_error(e):
+    logger.error(f"Server error: {e}")
+    return jsonify({'error': 'Internal server error'}), 500
+
+# ==================== ЗАПУСК ====================
+
+if __name__ == '__main__':
+    init_db()
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(host='0.0.0.0', port=port, debug=debug)
