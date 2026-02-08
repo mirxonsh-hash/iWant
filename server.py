@@ -26,8 +26,8 @@ DB_CONFIG = {
     'port': '5432'
 }
 
-TELEGRAM_TOKEN = '7662525969:AAF33YcsBM8OmeURyarjx-bNxF9ghOVGRNc'
-OWNER_ID = 531822805
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '')
+OWNER_ID = int(os.environ.get('OWNER_ID', 0))
 
 # Декораторы
 def require_user(f):
@@ -729,3 +729,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     app.run(host='0.0.0.0', port=port, debug=debug)
+
