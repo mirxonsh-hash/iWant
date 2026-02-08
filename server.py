@@ -105,10 +105,9 @@ def init_db():
                 )
             ''')
             
-            # Индексы для производительности
-            cur.execute('CREATE INDEX IF NOT EXISTS idx_appointments_master_date ON appointments(master_code, appointment_date)')
+             # Индексы для производительности (убрали проблемный индекс)
             cur.execute('CREATE INDEX IF NOT EXISTS idx_clients_user_id ON clients(user_id)')
-            cur.execute('CREATE INDEX IF NOT EXISTS idx_clients_master_code ON clients(master_code)')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)')
             
         conn.commit()
 
@@ -729,4 +728,5 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     app.run(host='0.0.0.0', port=port, debug=debug)
+
 
