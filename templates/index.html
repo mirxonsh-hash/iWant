@@ -547,4 +547,117 @@
             masterLoginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 
-               
+                const loginCodeInput = document.getElementById('loginCode');
+                const passwordInput = document.getElementById('password');
+                
+                const loginCode = loginCodeInput ? loginCodeInput.value.trim().toUpperCase() : '';
+                const password = passwordInput ? passwordInput.value : '';
+                
+                if (!loginCode || !password) {
+                    alert('Введите код и пароль');
+                    return;
+                }
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('login_code', loginCode);
+                    formData.append('password', password);
+                    
+                    console.log('Sending login request:', loginCode);
+                    
+                    const response = await fetch('/master_login', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    console.log('Login result:', result);
+                    
+                    if (result.success) {
+                        alert('Успешный вход! Перенаправляем...');
+                        
+                        if (result.redirect) {
+                            setTimeout(() => {
+                                window.location.href = result.redirect;
+                            }, 500);
+                        }
+                    } else {
+                        alert(result.message || 'Ошибка при входе');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Произошла ошибка при подключении к серверу');
+                }
+            });
+        } else {
+            console.warn('masterLoginForm not found');
+        }
+        
+        // Рендеринг списка барберов
+        function renderBarbers(barbers) {
+            if (!barbersGrid) return;
+            
+            if (!barbers || barbers.length === 0) {
+                showEmptyState();
+                return;
+            }
+            
+            barbersGrid.innerHTML = barbers.map(barber => `
+                <div class="barber-card">
+                    <img src="${barber.avatar || '/static/default_barber.png'}" 
+                         alt="${barber.name}" 
+                         class="barber-avatar"
+                         onerror="this.src='/static/default_barber.png'">
+                    <div class="barber-name">${barber.name}</div>
+                    <div class="barber-code">Код: ${barber.code}</div>
+                    <button class="book-btn" onclick="bookWithBarber('${barber.code}', '${barber.name.replace(/'/g, "\\'")}', '${barber.avatar || ''}')">
+                        Записаться
+                    </button>
+                </div>
+            `).join('');
+        }
+        
+        // Функция записи к барберу
+        function bookWithBarber(masterCode, masterName, masterAvatar) {
+            if (window.openBookingModal) {
+                window.openBookingModal(masterCode, masterName, masterAvatar);
+            } else {
+                alert(`Запись к барберу: ${masterName}\nКод: ${masterCode}\n\nОткрывается окно записи...`);
+            }
+        }
+        
+        // Экспортируем функции для использования в модальном окне
+        window.bookWithBarber = bookWithBarber;
+        window.loadUserBarbers = loadUserBarbers;
+        
+        // Закрытие модальных окон при клике вне их
+        window.addEventListener('click', function(e) {
+            if (addBarberModal && e.target === addBarberModal) {
+                closeAddBarberModal();
+            }
+            if (masterLoginModal && e.target === masterLoginModal) {
+                closeMasterLoginModal();
+            }
+        });
+        
+        // Закрытие модальных окон по Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeAddBarberModal();
+                closeMasterLoginModal();
+            }
+        });
+        
+        // Инициализация при загрузке страницы
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, initializing...');
+            loadUserBarbers();
+        });
+        
+        // Также инициализируем при полной загрузке страницы
+        window.addEventListener('load', () => {
+            console.log('Page fully loaded');
+        });
+    </script>
+</body>
+</html>
