@@ -573,3 +573,83 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     app.run(host='0.0.0.0', port=port, debug=debug)
+# server.py - ДОПОЛНЯЮ КОД
+
+# ==================== ДОБАВЛЯЮ ПОСЛЕ СУЩЕСТВУЮЩЕГО КОДА ====================
+
+@app.route('/api/barbers/check', methods=['POST'])
+def check_barber_exists():
+    """Проверить существование барбера по коду"""
+    data = request.json
+    code = data.get('code', '').upper()
+    
+    if not code:
+        return jsonify({'exists': False, 'message': 'Код не указан'})
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT code, full_name, phone, price, avatar_url
+                FROM masters 
+                WHERE code = %s AND is_active = TRUE
+            ''', (code,))
+            
+            master = cur.fetchone()
+            
+            if not master:
+                return jsonify({'exists': False, 'message': 'Барбер не найден'})
+            
+            return jsonify({
+                'exists': True,
+                'master': {
+                    'code': master[0],
+                    'full_name': master[1],
+                    'phone': master[2],
+                    'price': float(master[3]) if master[3] else 1000,
+                    'avatar': master[4] or '/static/default_barber.png'
+                }
+            })
+
+@app.route('/api/bookings/slots', methods=['GET'])
+def get_available_slots():
+    """Получить доступные слоты для записи"""
+    master_code = request.args.get('master_code', '').upper()
+    date = request.args.get('date')
+    
+    if not master_code or not date:
+        return jsonify({'error': 'Master code and date required'}), 400
+    
+    # Рабочие часы: 10:00 - 21:00 с интервалом в 30 минут
+    working_hours = [
+        '10:00', '10:30', '11:00', '11:30', '12:00', '12:30',
+        '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
+        '16:00', '16:30', '17:00', '17:30', '18:00', '18:30',
+        '19:00', '19:30', '20:00', '20:30'
+    ]
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            # Получаем занятые слоты на выбранную дату
+            cur.execute('''
+                SELECT appointment_time
+                FROM appointments 
+                WHERE master_code = %s 
+                AND appointment_date = %s
+                AND status != 'cancelled'
+                ORDER BY appointment_time
+            ''', (master_code, date))
+            
+            booked_times = [str(row[0]) for row in cur.fetchall()]
+            
+            # Формируем список доступных слотов
+            available_slots = []
+            for time in working_hours:
+                if time not in booked_times:
+                    available_slots.append(time)
+    
+    return jsonify({
+        'master_code': master_code,
+        'date': date,
+        'available_slots': available_slots,
+        'booked_slots': booked_times
+    })
